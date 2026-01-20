@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="icon.png">
+    
+    <title>FieldEval Pro v5.0 (PWA)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        dark: { bg: '#0f172a', surface: '#1e293b', border: '#334155' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { overscroll-behavior: none; }
+        
+        #mapContainer {
+            overflow: auto;
+            width: 100%;
+            height: calc(100vh - 160px);
+            touch-action: pan-x pan-y;
+            position: relative;
+            background-color: #f3f4f6;
+        }
+        .dark #mapContainer { background-color: #0f172a; }
+
+        #fieldMap { 
+            display: flex; gap: 40px; padding: 40px;
+            align-items: flex-start;
+            transform-origin: 0 0;
+            width: max-content;
+        }
+
+        .une-block {
+            display: flex; gap: 12px;
+            background: rgba(200, 200, 200, 0.2);
+            border: 2px dashed #cbd5e1;
+            padding: 40px 10px 10px 10px;
+            border-radius: 16px; position: relative;
+        }
+        .dark .une-block { background: rgba(30, 41, 59, 0.5); border-color: #475569; }
+
+        .une-header {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: #0f172a; color: white; padding: 4px 16px;
+            border-radius: 20px; font-weight: 900; font-size: 0.9rem;
+            white-space: nowrap; z-index: 5;
+        }
+        .dark .une-header { background: #3b82f6; }
+
+        .plant-cell { 
+            width: 90px; height: 100px;
+            display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; 
+            border-radius: 14px; background: white; 
+            border: 2px solid #e2e8f0; 
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .dark .plant-cell { background: #1e293b; border-color: #334155; color: white; }
+        .selected { outline: 4px solid #3b82f6 !important; transform: scale(1.1); z-index: 20; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+
+        .bar-container { display: flex; align-items: flex-end; height: 60px; gap: 2px; }
+        .bar { flex: 1; background: #3b82f6; border-radius: 2px 2px 0 0; min-width: 8px; position: relative; }
+        .bar:hover::after { content: attr(data-count); position: absolute; top: -20px; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: bold; color: #3b82f6; }
+
+        .modal-enter { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .score-btn { height: 60px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 900; border-radius: 12px; background: white; border: 2px solid #e2e8f0; color: #334155; }
+        .dark .score-btn { background: #0f172a; border-color: #334155; color: #cbd5e1; }
+        .score-input:checked + .score-btn { background: #2563eb; color: white; border-color: #2563eb; }
+        
+        .special-btn { font-size: 0.8rem; border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
+        .score-input:checked + .special-btn { background: #dc2626; color: white; border-color: #dc2626; }
+        
+        .reset-btn { font-size: 0.8rem; border-color: #cbd5e1; color: #64748b; background: #f1f5f9; }
+        .score-input:checked + .reset-btn { background: #64748b; color: white; border-color: #64748b; }
+
+        .photo-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 2px solid #ccc; display: none; }
+        .photo-thumb.active { display: block; }
+
+        .tab-container {
+            display: flex; gap: 4px; overflow-x: auto; padding: 4px;
+            scrollbar-width: none;
+        }
+        .tab-container::-webkit-scrollbar { display: none; }
+        .tab-item {
+            padding: 8px 16px; border-radius: 8px 8px 0 0; 
+            font-weight: bold; font-size: 0.8rem; white-space: nowrap;
+            background: rgba(255,255,255,0.5); color: #64748b; cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .dark .tab-item { background: rgba(30,41,59,0.5); color: #94a3b8; }
+        .tab-item.active {
+            background: white; color: #2563eb; border-bottom: 2px solid #2563eb;
+        }
+        .dark .tab-item.active {
+            background: #1e293b; color: #60a5fa; border-bottom: 2px solid #60a5fa;
+        }
+        
+        /* Loading Overlay */
+        #dbLoader { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; items-center; color: white; font-weight: bold; flex-direction: column; gap: 10px; }
+        #dbLoader.hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-slate-800 dark:bg-dark-bg dark:text-gray-100 transition-colors duration-300 flex flex-col h-screen overflow-hidden">
+
+<div id="dbLoader">
+    <div class="animate-spin text-4xl">⏳</div>
+    <div>Loading Database...</div>
+</div>
+
+<div class="bg-white dark:bg-dark-surface py-2 text-center border-b dark:border-dark-border z-50 shadow-sm shrink-0">
+    <h1 class="text-xl font-black tracking-tight text-slate-900 dark:text-white">FieldEval <span class="text-blue-600">Pro</span> <span class="text-[10px] text-gray-400 font-normal">v5.0</span></h1>
+</div>
+
+<div class="bg-white/90 dark:bg-dark-bg/95 backdrop-blur border-b border-gray-200 dark:border-dark-border z-40 shrink-0">
+    <div id="tabs" class="tab-container bg-gray-200 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700"></div>
+    <div class="h-1 w-full bg-gray-200 dark:bg-gray-800"><div id="progressBar" class="h-full bg-blue-600 transition-all duration-500 w-0"></div></div>
+    
+    <div class="flex justify-between items-center p-2 max-w-7xl mx-auto overflow-x-auto gap-4">
+        <div class="flex flex-col min-w-[120px]">
+            <span id="progressText" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">0% DONE</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <input type="range" min="0.5" max="2.0" step="0.1" value="1.0" id="zoomSlider" oninput="manualZoom(this.value)" class="w-20 accent-blue-600 hidden sm:block">
+            <button onclick="openStats()" class="p-2 rounded-lg bg-gray-100 dark:bg-dark-surface font-bold text-xs flex items-center gap-1 whitespace-nowrap"><span>📊</span> Stats</button>
+            <button onclick="toggleTheme()" class="p-2 rounded-full bg-gray-100 dark:bg-dark-surface">🌗</button>
+            <button onclick="openConfig()" class="p-2 rounded-lg bg-gray-100 dark:bg-dark-surface font-bold text-xs">⚙️</button>
+            
+            <label class="p-2 rounded-lg bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 font-bold text-xs cursor-pointer flex items-center gap-1 hover:opacity-80 transition-opacity">
+                <span>📥</span> Import
+                <input type="file" accept=".csv,.txt" class="hidden" onchange="importSystemNames(event)">
+            </label>
+
+            <button onclick="openShareMenu()" class="p-2 rounded-lg bg-blue-600 text-white font-bold text-xs shadow-lg flex items-center gap-1">
+                <span>📤</span> Share
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="mapContainer" class="flex-1">
+    <div id="fieldMap"></div>
+</div>
+
+<footer class="bg-gray-200 dark:bg-black py-2 text-center text-[10px] text-gray-500 dark:text-gray-600 font-bold shrink-0 z-50">
+    FieldEval Pro v5.0 (PWA/IndexedDB)
+</footer>
+
+<div id="shareModal" class="hidden fixed inset-0 bg-black/80 z-[90] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white dark:bg-dark-surface p-6 rounded-2xl w-full max-w-sm shadow-2xl text-center transform transition-all">
+        <h3 class="font-black text-xl mb-4 text-slate-900 dark:text-white">📤 Export & Share</h3>
+        <p class="text-xs text-gray-500 mb-6 font-bold">Choose a format to share or save.</p>
+        
+        <div class="space-y-3">
+            <button onclick="shareCSV()" class="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors shadow-lg">
+                <span class="text-xl">📊</span>
+                <div class="text-left"><div class="text-sm leading-none">Excel / CSV</div><div class="text-[10px] opacity-80 font-normal">Current Field Data</div></div>
+            </button>
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="backupData('current')" class="bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-colors shadow-lg">
+                    <span class="text-xl">📦</span><div class="text-[10px] leading-tight">JSON<br>(Current)</div>
+                </button>
+                <button onclick="backupData('all')" class="bg-slate-500 hover:bg-slate-600 text-white py-3 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-colors shadow-lg">
+                    <span class="text-xl">🗃️</span><div class="text-[10px] leading-tight">JSON<br>(All Data)</div>
+                </button>
+            </div>
+            <button onclick="exportMapImage()" class="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors shadow-lg">
+                <span class="text-xl">🖼️</span>
+                <div class="text-left"><div class="text-sm leading-none">Map Image</div><div class="text-[10px] opacity-80 font-normal">Save as PNG</div></div>
+            </button>
+        </div>
+        <button onclick="document.getElementById('shareModal').classList.add('hidden')" class="mt-6 py-2 px-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 font-bold text-xs hover:bg-gray-200">Cancel</button>
+    </div>
+</div>
+
+<div id="statsModal" class="hidden fixed inset-0 bg-black/80 z-[70] flex flex-col p-4 backdrop-blur-sm">
+    <div class="bg-white dark:bg-dark-surface rounded-2xl shadow-2xl flex-1 max-w-2xl mx-auto w-full flex flex-col overflow-hidden">
+        <div class="p-4 border-b dark:border-dark-border flex justify-between items-center">
+            <h3 class="font-black text-xl">📊 System Analysis</h3>
+            <button onclick="document.getElementById('statsModal').classList.add('hidden')" class="text-2xl font-bold text-gray-400">×</button>
+        </div>
+        <div id="statsContent" class="flex-1 overflow-y-auto p-4 space-y-6"></div>
+    </div>
+</div>
+
+<div id="configModal" class="hidden fixed inset-0 bg-black/80 z-[80] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-white dark:bg-dark-surface p-6 rounded-2xl w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="font-black text-2xl">Settings</h3>
+            <button onclick="document.getElementById('configModal').classList.add('hidden')" class="text-gray-400 font-bold text-xl">×</button>
+        </div>
+        <div class="space-y-4 font-bold text-sm">
+            <div class="bg-slate-100 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                <label class="text-xs text-slate-500 font-bold block mb-2">Data Restoration</label>
+                <div class="grid grid-cols-1 gap-2">
+                    <label class="bg-white dark:bg-slate-700 py-3 rounded-lg border border-slate-300 dark:border-slate-600 text-xs shadow-sm hover:bg-slate-50 text-center cursor-pointer block font-bold text-slate-600 dark:text-slate-300">
+                        ♻️ Restore / Import (JSON)
+                        <input type="file" accept=".json" class="hidden" onchange="restoreData(event)">
+                    </label>
+                </div>
+            </div>
+            <div class="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-xl border border-purple-100 dark:border-purple-800">
+                <label class="text-xs text-purple-600 font-bold block mb-2">📊 Compare Mode</label>
+                <select id="cfg_compareTarget" class="w-full bg-white dark:bg-black/20 p-2 rounded-lg text-xs font-bold border border-purple-200 dark:border-purple-800"><option value="">(None)</option></select>
+            </div>
+            <div><label class="text-xs text-gray-500">Field Name</label><input type="text" id="cfg_fieldName" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg font-bold border border-gray-300 dark:border-gray-600"></div>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="col-span-2"><label class="text-xs text-gray-500">Survey Date</label><input type="date" id="meta_date" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg font-bold"></div>
+                <div class="col-span-2"><label class="text-xs text-gray-500">Surveyor</label><input type="text" id="meta_surveyor" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg font-bold"></div>
+                <div class="col-span-2"><label class="text-xs text-gray-500">Crop Name</label><input type="text" id="meta_crop" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg font-bold"></div>
+            </div>
+            <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-xl border border-blue-100 dark:border-blue-800">
+                <label class="text-xs text-blue-500 font-bold block mb-2">Field Location</label>
+                <div class="flex gap-2"><button onclick="setCurrentLocation()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-bold">📍 Get GPS</button><a id="mapsLink" href="#" target="_blank" class="hidden text-blue-600 text-xs font-bold underline flex items-center">Open Maps ↗</a></div>
+                <input type="hidden" id="meta_lat"><input type="hidden" id="meta_lon"><p id="locationStatus" class="text-[10px] text-gray-400 mt-1">Not set</p>
+            </div>
+            <label class="flex justify-between items-center p-3 bg-gray-50 dark:bg-black/20 rounded-xl"><span>📍 Record GPS per plant</span><input type="checkbox" id="cfg_useGPS" class="w-6 h-6 accent-blue-600"></label>
+            <div class="grid grid-cols-2 gap-4 border-t pt-4 dark:border-gray-700">
+                <div><label class="text-gray-400 text-xs">Rows</label><input type="number" id="cfg_rows" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg text-center font-black"></div>
+                <div><label class="text-gray-400 text-xs">Lines</label><input type="number" id="cfg_lines" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg text-center font-black"></div>
+                <div><label class="text-gray-400 text-xs">Plants</label><input type="number" id="cfg_plants" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg text-center font-black"></div>
+                <div><label class="text-gray-400 text-xs">Max Score</label><input type="number" id="cfg_maxScore" class="w-full bg-gray-100 dark:bg-black/20 p-2 rounded-lg text-center font-black"></div>
+            </div>
+            <div class="pt-4 border-t dark:border-dark-border space-y-2">
+                <button onclick="resetFieldData()" class="w-full py-2 text-orange-500 font-bold hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors text-xs">⚠️ Reset Data Only</button>
+                <button onclick="deleteCurrentField()" class="w-full py-2 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors text-xs">🗑️ Delete This Field</button>
+            </div>
+        </div>
+        <div class="mt-6 flex gap-3"><button onclick="saveFieldConfig()" class="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold">Save & Close</button></div>
+    </div>
+</div>
+
+<div id="inputModal" class="fixed inset-0 z-[100] hidden flex flex-col justify-end sm:justify-center items-center bg-black/60 backdrop-blur-sm">
+    <div class="absolute inset-0" onclick="closeModal()"></div>
+    <div class="modal-enter relative w-full sm:w-[400px] bg-white dark:bg-dark-surface sm:rounded-3xl rounded-t-3xl p-6 shadow-2xl border-t border-white/20">
+        <div class="flex justify-between items-start mb-2">
+            <div class="w-full mr-4">
+                <h2 id="currentIdLabel" class="text-4xl font-black text-blue-600 dark:text-blue-400 leading-none">--</h2>
+                <div class="mt-2 flex items-center gap-2">
+                    <input type="text" id="currentSystemInput" class="w-full bg-transparent border-b border-gray-300 dark:border-gray-600 font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500" placeholder="System Name">
+                    <input type="color" id="currentSystemColor" class="w-8 h-8 rounded cursor-pointer border-0 p-0" title="Change Color">
+                </div>
+            </div>
+            <button onclick="closeModal()" class="w-10 h-10 shrink-0 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center font-bold text-xl">×</button>
+        </div>
+        <div id="compareInfo" class="hidden mb-4 bg-purple-50 dark:bg-purple-900/20 p-3 rounded-xl border border-purple-100 dark:border-purple-800 flex items-start gap-3">
+            <div class="text-xl">📊</div>
+            <div class="flex-1">
+                <div class="flex justify-between items-baseline"><span class="text-[10px] font-bold text-purple-600 dark:text-purple-300 uppercase tracking-wider">Previous Data</span><span id="compareDate" class="text-[10px] text-gray-400"></span></div>
+                <div class="flex items-baseline gap-2 mt-1"><span id="compareScore" class="text-2xl font-black text-gray-800 dark:text-white"></span><span id="compareComment" class="text-xs text-gray-500 italic truncate max-w-[150px]"></span></div>
+            </div>
+        </div>
+        <div id="scoreGrid" class="grid grid-cols-3 gap-3 mb-6 max-h-[30vh] overflow-y-auto"></div>
+        <div class="relative mb-6 flex gap-2 items-start">
+            <textarea id="comment" class="flex-1 p-4 bg-gray-100 dark:bg-black/30 rounded-2xl h-20 text-sm font-bold resize-none outline-none focus:ring-2 ring-blue-500" placeholder="Comment..."></textarea>
+            <div class="flex flex-col gap-2">
+                <label class="w-12 h-12 rounded-xl flex items-center justify-center text-gray-400 bg-gray-100 dark:bg-black/30 hover:text-blue-500 cursor-pointer text-xl">📷<input type="file" id="photoInput" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelect(event)"></label>
+                <button id="deletePhotoBtn" onclick="removePhoto()" class="hidden w-12 h-8 rounded-xl items-center justify-center text-red-500 bg-red-100 hover:bg-red-200 text-xs font-bold">DEL</button>
+            </div>
+            <img id="photoPreview" class="photo-thumb absolute right-16 top-0 bg-white" alt="preview">
+        </div>
+        <div class="flex gap-3">
+            <button onclick="moveWithoutSave(-1)" class="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-200 py-4 rounded-2xl font-black text-sm active:scale-95 transition-transform"><span class="block text-xs opacity-50 font-normal">NO SAVE</span>< BACK</button>
+            <button onclick="saveAndMove(1)" class="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-xl shadow-xl active:scale-95 transition-transform">SAVE & NEXT ></button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- IndexedDB Wrapper ---
+    const DB_NAME = 'FieldEvalDB';
+    const DB_VERSION = 1;
+    let db = null;
+
+    function initDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const _db = e.target.result;
+                if (!_db.objectStoreNames.contains('state')) _db.createObjectStore('state');
+            };
+            req.onsuccess = (e) => {
+                db = e.target.result;
+                resolve(db);
+            };
+            req.onerror = (e) => reject(e);
+        });
+    }
+
+    function dbGet(store, key) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction([store], 'readonly');
+            const req = tx.objectStore(store).get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    function dbPut(store, key, value) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction([store], 'readwrite');
+            const req = tx.objectStore(store).put(value, key);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    // --- Service Worker Registration ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('SW registered'))
+                .catch(err => console.log('SW fail', err));
+        });
+    }
+
+    // --- App Logic ---
+    let state = {
+        currentField: 'Field 1',
+        gpsEnabled: false,
+        theme: 'light',
+        systemColors: {},
+        compareTarget: null,
+        fields: {
+            'Field 1': { config: {rows:4, lines:2, plants:5, maxScore:5}, data: {}, systems: {}, meta: { date: '', surveyor: '', crop: '', lat: null, lon: null } }
+        }
+    };
+
+    let currentScale = 1;
+    let tempPhotoData = null;
+
+    window.onload = async () => {
+        try {
+            await initDB();
+            // Load from IDB
+            const savedState = await dbGet('state', 'latest');
+            if (savedState) {
+                state = savedState;
+            } else {
+                // Migration: Check LocalStorage
+                const local = localStorage.getItem('field_eval_v4');
+                if (local) {
+                    try {
+                        state = JSON.parse(local);
+                        await dbPut('state', 'latest', state); // Save to IDB
+                        alert("Data migrated to new database system!");
+                    } catch(e) { console.error("Migration failed", e); }
+                }
+            }
+        } catch(e) {
+            console.error("DB Error", e);
+            alert("Database Error. App may not work correctly.");
+        } finally {
+            document.getElementById('dbLoader').classList.add('hidden');
+        }
+        
+        // Migration Check
+        if(!state.fields[state.currentField].meta) {
+            Object.keys(state.fields).forEach(k => {
+                if(!state.fields[k].meta) state.fields[k].meta = { date: '', surveyor: '', crop: '', lat: null, lon: null };
+            });
+        }
+
+        applyTheme(state.theme);
+        updateSelector();
+        renderMap();
+        updateProgress();
+        initZoom();
+    };
+
+    async function saveState() {
+        // Save to IDB (Async)
+        try {
+            await dbPut('state', 'latest', state);
+            updateProgress();
+        } catch(e) {
+            console.error("Save failed", e);
+            alert("Error saving data!");
+        }
+    }
+
+    /* Zoom Logic */
+    function initZoom() {
+        const container = document.getElementById('mapContainer');
+        let initialDistance = 0; let initialScale = 1;
+        container.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) { e.preventDefault(); initialDistance = getDistance(e.touches[0], e.touches[1]); initialScale = currentScale; }
+        }, { passive: false });
+        container.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) { e.preventDefault(); const dist = getDistance(e.touches[0], e.touches[1]); setZoom(initialScale * (dist/initialDistance)); }
+        }, { passive: false });
+        container.addEventListener('wheel', (e) => {
+            if(e.shiftKey || e.ctrlKey) { e.preventDefault(); setZoom(currentScale + (e.deltaY * -0.001)); }
+        }, { passive: false });
+    }
+    function getDistance(t1, t2) { return Math.hypot(t2.pageX - t1.pageX, t2.pageY - t1.pageY); }
+    function setZoom(scale) {
+        currentScale = Math.min(Math.max(scale, 0.5), 3.0);
+        document.getElementById('fieldMap').style.transform = `scale(${currentScale})`;
+        document.getElementById('zoomSlider').value = currentScale;
+    }
+    function manualZoom(val) { setZoom(parseFloat(val)); }
+
+    /* Helper */
+    function getSystemColor(name) {
+        if(!name) return 'black';
+        if(state.systemColors && state.systemColors[name]) return state.systemColors[name];
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        const h = Math.abs(hash % 360);
+        return `hsl(${h}, 70%, 40%)`; 
+    }
+    function rgbToHex(color) { return color.startsWith('#') ? color : '#000000'; }
+
+    /* Map Rendering */
+    function renderMap() {
+        const field = state.fields[state.currentField];
+        const { rows, lines, plants, maxScore } = field.config;
+        const container = document.getElementById('fieldMap');
+        container.innerHTML = '';
+
+        for (let r = 1; r <= rows; r++) {
+            const uneBlock = document.createElement('div');
+            uneBlock.className = 'une-block';
+            uneBlock.innerHTML = `<div class="une-header">R-${r}</div>`;
+            for (let l = 1; l <= lines; l++) {
+                const col = document.createElement('div');
+                col.className = 'flex flex-col gap-3 min-w-[90px]';
+                col.innerHTML = `<div class="text-center text-[10px] font-bold text-gray-400 uppercase">L${l}</div>`;
+                for (let p = 1; p <= plants; p++) {
+                    const id = `${r}-${l}-${p}`;
+                    const d = field.data[id];
+                    const sys = field.systems[id] || '';
+                    const val = d ? d.score : null;
+                    const hasPhoto = d && d.photo;
+                    
+                    const div = document.createElement('div');
+                    div.id = `cell-${id}`;
+                    div.className = 'plant-cell relative overflow-hidden group cursor-pointer';
+                    if (val !== null && val !== 'RESET') {
+                        div.style.backgroundColor = getHeatmapColor(val, maxScore);
+                    }
+                    const sysColor = state.theme === 'dark' && !state.systemColors[sys] ? '#cbd5e1' : getSystemColor(sys);
+
+                    div.innerHTML = `
+                        <span class="absolute top-1 left-2 text-lg font-black opacity-80 text-black">#${p}</span>
+                        ${hasPhoto ? '<span class="absolute top-1 right-1 text-xs">📷</span>' : ''}
+                        <div class="w-full text-center px-1 text-[18px] font-black leading-tight mt-3 break-words overflow-hidden max-h-[50px]" style="color:${sysColor}">${sys}</div>
+                        <span class="text-2xl font-black leading-none mt-1 text-gray-800 dark:text-gray-100">
+                            ${val === '評価不能' ? 'N/A' : (val === '欠株' ? '×' : (val ?? ''))}
+                        </span>
+                    `;
+                    div.onclick = () => openScoring(id);
+                    col.appendChild(div);
+                }
+                uneBlock.appendChild(col);
+            }
+            container.appendChild(uneBlock);
+        }
+    }
+
+    function getHeatmapColor(val, max) {
+        if (val === '評価不能') return state.theme==='dark' ? '#374151' : '#f3f4f6';
+        if (val === '欠株') return state.theme==='dark' ? '#7f1d1d' : '#fee2e2';
+        if (!val) return '';
+        const r = parseFloat(val) / max;
+        const l = state.theme === 'dark' ? 20 + (r * 40) : 95 - (r * 50);
+        return `hsl(142, 70%, ${l}%)`;
+    }
+
+    /* Scoring Modal */
+    function openScoring(id) {
+        if(window.currentId) document.getElementById(`cell-${window.currentId}`)?.classList.remove('selected');
+        window.currentId = id;
+        document.getElementById(`cell-${id}`).classList.add('selected');
+        
+        const f = state.fields[state.currentField];
+        const d = f.data[id] || { score: null, comment: '' };
+        const sysName = f.systems[id] || '';
+
+        document.getElementById('inputModal').classList.remove('hidden');
+        document.getElementById('currentIdLabel').innerText = id;
+        document.getElementById('currentSystemInput').value = sysName;
+        document.getElementById('currentSystemColor').value = rgbToHex(getSystemColor(sysName));
+        document.getElementById('comment').value = d.comment || '';
+        
+        const compDiv = document.getElementById('compareInfo');
+        if (state.compareTarget && state.fields[state.compareTarget]) {
+            const compF = state.fields[state.compareTarget];
+            const compD = compF.data[id];
+            
+            if (compD) {
+                compDiv.classList.remove('hidden');
+                document.getElementById('compareScore').innerText = compD.score;
+                document.getElementById('compareComment').innerText = compD.comment || '';
+                document.getElementById('compareDate').innerText = `${state.compareTarget} (${compF.meta.date || 'No Date'})`;
+            } else {
+                compDiv.classList.add('hidden'); 
+            }
+        } else {
+            compDiv.classList.add('hidden');
+        }
+
+        tempPhotoData = d.photo || null;
+        updatePhotoPreview();
+
+        const grid = document.getElementById('scoreGrid');
+        grid.innerHTML = '';
+        
+        for (let s = 0; s <= f.config.maxScore; s += 0.5) {
+             grid.innerHTML += `<div><input type="radio" name="score" id="s${s}" value="${s}" class="score-input hidden" ${d.score==s?'checked':''}><label for="s${s}" class="score-btn cursor-pointer">${s}</label></div>`;
+        }
+        
+        const specials = ['RESET', '欠株', '評価不能'];
+        specials.forEach((opt, i) => {
+            const label = opt === 'RESET' ? 'RESET<br>(未評価)' : opt;
+            const cls = opt === 'RESET' ? 'reset-btn' : 'special-btn';
+            grid.innerHTML += `<div class="col-span-1"><input type="radio" name="score" id="sp_${i}" value="${opt}" class="score-input hidden" ${d.score===opt?'checked':''}><label for="sp_${i}" class="score-btn ${cls} cursor-pointer text-xs">${label}</label></div>`;
+        });
+    }
+
+    function handlePhotoSelect(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const r = new FileReader();
+        r.onload = function(ev) {
+            const img = new Image();
+            img.onload = function() {
+                const c = document.createElement('canvas');
+                const scale = 600 / img.width;
+                c.width = 600; c.height = img.height * scale;
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                tempPhotoData = c.toDataURL('image/jpeg', 0.7);
+                updatePhotoPreview();
+            };
+            img.src = ev.target.result;
+        };
+        r.readAsDataURL(file);
+    }
+    function removePhoto() { if(confirm('Delete photo?')) { tempPhotoData = null; document.getElementById('photoInput').value = ''; updatePhotoPreview(); } }
+    function updatePhotoPreview() {
+        const p = document.getElementById('photoPreview');
+        const b = document.getElementById('deletePhotoBtn');
+        if(tempPhotoData) { p.src = tempPhotoData; p.classList.add('active'); b.classList.remove('hidden'); b.classList.add('flex'); }
+        else { p.classList.remove('active'); p.src = ''; b.classList.add('hidden'); b.classList.remove('flex'); }
+    }
+
+    async function saveAndMove(dir) {
+        const input = document.querySelector('input[name="score"]:checked');
+        if(!input) { alert("Please select a score or RESET."); return; }
+
+        const newSys = document.getElementById('currentSystemInput').value;
+        const newCol = document.getElementById('currentSystemColor').value;
+        state.fields[state.currentField].systems[window.currentId] = newSys;
+        state.systemColors[newSys] = newCol;
+
+        if (input.value === 'RESET') {
+            delete state.fields[state.currentField].data[window.currentId];
+            await saveState(); renderMap(); commit(null, dir, false); return;
+        }
+
+        const d = { score: input.value, comment: document.getElementById('comment').value, photo: tempPhotoData, timestamp: new Date().toISOString() };
+        if (state.gpsEnabled && navigator.geolocation) {
+             navigator.geolocation.getCurrentPosition(
+                 async (p) => { d.lat = p.coords.latitude; d.lon = p.coords.longitude; await commit(d, dir, true); },
+                 async () => { await commit(d, dir, true); }, { enableHighAccuracy: true, timeout: 2000 }
+             );
+        } else await commit(d, dir, true);
+    }
+    function moveWithoutSave(dir) { commit(null, dir, false); }
+    async function commit(obj, dir, save) {
+        if(save && obj) { state.fields[state.currentField].data[window.currentId] = obj; await saveState(); renderMap(); }
+        const cur = document.getElementById(`cell-${window.currentId}`);
+        const next = findNeighbor(cur, dir);
+        if(next) { cur.scrollIntoView({behavior:'smooth', block:'center'}); setTimeout(() => openScoring(next.id.replace('cell-', '')), 50); }
+        else { closeModal(); if(dir===1) alert("End of field."); }
+    }
+    function findNeighbor(cell, dir) {
+        const all = Array.from(document.querySelectorAll('.plant-cell'));
+        const idx = all.indexOf(cell);
+        return all[idx + dir] || null;
+    }
+    function closeModal() {
+        document.getElementById('inputModal').classList.add('hidden');
+        if(window.currentId) document.getElementById(`cell-${window.currentId}`)?.classList.remove('selected');
+        window.currentId = null;
+    }
+
+    /* Configuration & Metadata */
+    function openConfig() {
+        const f = state.fields[state.currentField];
+        const c = f.config;
+        const m = f.meta || {};
+        ['rows','lines','plants','maxScore'].forEach(k => document.getElementById(`cfg_${k}`).value = c[k]);
+        document.getElementById('cfg_useGPS').checked = state.gpsEnabled;
+        document.getElementById('cfg_fieldName').value = state.currentField;
+        
+        const sel = document.getElementById('cfg_compareTarget');
+        sel.innerHTML = '<option value="">(None)</option>';
+        Object.keys(state.fields).forEach(fname => {
+            if (fname !== state.currentField) {
+                const opt = document.createElement('option');
+                opt.value = fname;
+                const fd = state.fields[fname].meta?.date || 'No Date';
+                opt.innerText = `${fname} (${fd})`;
+                if (state.compareTarget === fname) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        });
+
+        document.getElementById('meta_date').value = m.date || '';
+        document.getElementById('meta_surveyor').value = m.surveyor || '';
+        document.getElementById('meta_crop').value = m.crop || '';
+        
+        const locStat = document.getElementById('locationStatus');
+        const link = document.getElementById('mapsLink');
+        if(m.lat && m.lon) {
+            locStat.innerText = `Saved: ${m.lat.toFixed(5)}, ${m.lon.toFixed(5)}`;
+            link.href = `https://www.google.com/maps?q=${m.lat},${m.lon}`;
+            link.classList.remove('hidden');
+        } else {
+            locStat.innerText = "Not set";
+            link.classList.add('hidden');
+        }
+        
+        document.getElementById('configModal').classList.remove('hidden');
+    }
+
+    function setCurrentLocation() {
+        if(!navigator.geolocation) return alert("Geolocation is not supported.");
+        navigator.geolocation.getCurrentPosition(pos => {
+            const f = state.fields[state.currentField];
+            if(!f.meta) f.meta = {};
+            f.meta.lat = pos.coords.latitude;
+            f.meta.lon = pos.coords.longitude;
+            openConfig(); 
+            alert("Location saved!");
+        });
+    }
+
+    async function saveFieldConfig() {
+        state.gpsEnabled = document.getElementById('cfg_useGPS').checked;
+        state.compareTarget = document.getElementById('cfg_compareTarget').value || null;
+
+        const oldName = state.currentField;
+        const newName = document.getElementById('cfg_fieldName').value.trim();
+        if(newName && newName !== oldName) {
+            if(state.fields[newName]) return alert("Field name already exists.");
+            state.fields[newName] = state.fields[oldName];
+            delete state.fields[oldName];
+            state.currentField = newName;
+            if (state.compareTarget === oldName) state.compareTarget = newName;
+        }
+
+        const f = state.fields[state.currentField];
+        ['rows','lines','plants','maxScore'].forEach(k => f.config[k] = parseFloat(document.getElementById(`cfg_${k}`).value));
+        
+        if(!f.meta) f.meta = {};
+        f.meta.date = document.getElementById('meta_date').value;
+        f.meta.surveyor = document.getElementById('meta_surveyor').value;
+        f.meta.crop = document.getElementById('meta_crop').value;
+
+        await saveState();
+        document.getElementById('configModal').classList.add('hidden');
+        updateSelector();
+        renderMap();
+    }
+    
+    async function resetFieldData() {
+        if(confirm(`⚠️ Clear all DATA for ${state.currentField}?`)) {
+            state.fields[state.currentField].data = {};
+            await saveState(); renderMap(); updateProgress(); document.getElementById('configModal').classList.add('hidden');
+        }
+    }
+    async function deleteCurrentField() {
+        if(Object.keys(state.fields).length <= 1) return alert("Cannot delete last field.");
+        if(confirm(`Delete field "${state.currentField}"?`)) {
+            delete state.fields[state.currentField];
+            state.currentField = Object.keys(state.fields)[0];
+            await saveState(); updateSelector(); renderMap(); updateProgress(); document.getElementById('configModal').classList.add('hidden');
+        }
+    }
+
+    async function updateSelector() {
+        const tabs = document.getElementById('tabs');
+        tabs.innerHTML = '';
+        Object.keys(state.fields).forEach(name => {
+            const div = document.createElement('div');
+            div.className = `tab-item ${name === state.currentField ? 'active' : ''}`;
+            div.innerText = name;
+            div.onclick = async () => { state.currentField = name; await saveState(); updateSelector(); renderMap(); updateProgress(); };
+            tabs.appendChild(div);
+        });
+        const addBtn = document.createElement('div');
+        addBtn.className = 'tab-item text-blue-500';
+        addBtn.innerText = '+';
+        addBtn.onclick = async () => {
+            const n = prompt("New Field Name:");
+            if(n && !state.fields[n]) {
+                state.fields[n] = { config: {rows:4, lines:2, plants:5, maxScore:5}, data:{}, systems:{}, meta:{date:'',surveyor:'',crop:''} };
+                state.currentField = n;
+                await saveState(); updateSelector(); renderMap(); updateProgress();
+            }
+        };
+        tabs.appendChild(addBtn);
+    }
+    
+    async function importSystemNames(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        const r = new FileReader();
+        r.onload = async (ev) => {
+            const lines = ev.target.result.split(/\r\n|\n/);
+            let count = 0; let maxR=0, maxL=0, maxP=0;
+            lines.forEach(l => {
+                const parts = l.split(',');
+                if(parts.length >= 2) {
+                    const id = parts[0].trim();
+                    const name = parts[1].trim();
+                    if(id && name) {
+                        state.fields[state.currentField].systems[id] = name;
+                        count++;
+                        const nums = id.split('-').map(Number);
+                        if(nums.length === 3) { if(nums[0]>maxR)maxR=nums[0]; if(nums[1]>maxL)maxL=nums[1]; if(nums[2]>maxP)maxP=nums[2]; }
+                    }
+                }
+            });
+            if(count > 0 && maxR > 0) {
+                const c = state.fields[state.currentField].config;
+                c.rows = maxR; c.lines = Math.max(c.lines, maxL); c.plants = Math.max(c.plants, maxP);
+                alert(`Imported ${count} systems.\nMap updated.`);
+            }
+            await saveState(); renderMap(); e.target.value = '';
+        };
+        r.readAsText(file);
+    }
+
+    /* SHARE */
+    function openShareMenu() { document.getElementById('shareModal').classList.remove('hidden'); }
+
+    async function backupData(mode) {
+        let data, fileName;
+        if (mode === 'current') {
+            const fname = state.currentField;
+            data = { type: 'field_eval_single', name: fname, content: state.fields[fname], exportedAt: new Date().toISOString() };
+            fileName = `FieldEval_${fname}_${new Date().toISOString().slice(0,10)}.json`;
+        } else {
+            data = state;
+            fileName = `FieldEval_FULL_BACKUP_${new Date().toISOString().slice(0,10)}.json`;
+        }
+        const json = JSON.stringify(data, null, 2);
+        const file = new File([json], fileName, {type: 'application/json'});
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try { await navigator.share({ title: 'FieldEval Backup', files: [file] }); document.getElementById('shareModal').classList.add('hidden'); return; }
+            catch (err) {}
+        }
+        const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = fileName; a.click(); URL.revokeObjectURL(url);
+        document.getElementById('shareModal').classList.add('hidden');
+    }
+
+    function restoreData(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        const r = new FileReader();
+        r.onload = async (ev) => {
+            try {
+                const parsed = JSON.parse(ev.target.result);
+                if (parsed.type === 'field_eval_single' && parsed.content) {
+                    const fname = parsed.name;
+                    if(state.fields[fname] && !confirm(`Overwrite field "${fname}"?`)) { e.target.value = ''; return; }
+                    state.fields[fname] = parsed.content;
+                    state.currentField = fname;
+                    await saveState(); alert(`Imported "${fname}"!`); location.reload(); return;
+                }
+                if (parsed.fields && parsed.currentField) {
+                    if(!confirm("⚠️ CAUTION: Restore FULL BACKUP?")) { e.target.value = ''; return; }
+                    state = parsed; await saveState(); alert("Restore successful!"); location.reload(); return;
+                }
+                throw new Error("Unknown format");
+            } catch(err) { alert("Invalid JSON"); }
+        };
+        r.readAsText(file);
+    }
+
+    function exportMapImage() {
+        document.getElementById('shareModal').classList.add('hidden');
+        const element = document.getElementById('fieldMap');
+        const originalTransform = element.style.transform;
+        element.style.transform = 'scale(1)';
+        html2canvas(element, { backgroundColor: state.theme === 'dark' ? '#0f172a' : '#f3f4f6' }).then(canvas => {
+            element.style.transform = originalTransform; 
+            const link = document.createElement('a');
+            link.download = `Map_${state.currentField}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+    }
+
+    function shareCSV() {
+        const fn = state.currentField;
+        const f = state.fields[fn];
+        const m = f.meta || {};
+        let csv = `# Field: ${fn}\n# Date: ${m.date}\n# Surveyor: ${m.surveyor}\n# Crop: ${m.crop}\n# Location: ${m.lat},${m.lon}\n`;
+        csv += "Field,ID,System,Score,Comment,Lat,Lon,Time,HasPhoto\n";
+        for(const id in f.data) {
+            const d = f.data[id];
+            const hasP = d.photo ? 'Yes' : 'No';
+            csv += `${fn},${id},${f.systems[id]||''},${d.score},"${d.comment}",${d.lat||''},${d.lon||''},${d.timestamp||''},${hasP}\n`;
+        }
+        const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], {type:'text/csv'});
+        const file = new File([blob], `${fn}_${new Date().toISOString().slice(0,10)}.csv`, {type: 'text/csv'});
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ title: `FieldEval Data`, files: [file] }).catch(console.error);
+        } else {
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); alert("Downloaded.");
+        }
+        document.getElementById('shareModal').classList.add('hidden');
+    }
+
+    function openStats() {
+        // ... (Stats Logic Unchanged from v4.5) ...
+        const f = state.fields[state.currentField];
+        const container = document.getElementById('statsContent');
+        container.innerHTML = '';
+        const systemStats = {};
+        const allSystems = new Set(Object.values(f.systems));
+        allSystems.forEach(sys => {
+            if(!sys) return;
+            systemStats[sys] = { counts: {}, total: 0, sum: 0 };
+            for(let i=1; i<=f.config.maxScore; i++) systemStats[sys].counts[i] = 0;
+            systemStats[sys].counts['N/A'] = 0; systemStats[sys].counts['Miss'] = 0;
+        });
+        for(const id in f.data) {
+            const sys = f.systems[id];
+            const score = f.data[id].score;
+            if(sys && systemStats[sys]) {
+                if(score === '評価不能') systemStats[sys].counts['N/A']++;
+                else if(score === '欠株') systemStats[sys].counts['Miss']++;
+                else {
+                    const num = parseFloat(score);
+                    if(!isNaN(num)) {
+                        const key = Math.round(num);
+                        if(systemStats[sys].counts[key] !== undefined) systemStats[sys].counts[key]++;
+                        systemStats[sys].total++; systemStats[sys].sum += num;
+                    }
+                }
+            }
+        }
+        if(Object.keys(systemStats).length === 0) container.innerHTML = '<div class="text-center text-gray-500 py-10">No data.</div>';
+        else {
+            Object.keys(systemStats).sort().forEach(sys => {
+                const stat = systemStats[sys];
+                const avg = stat.total > 0 ? (stat.sum / stat.total).toFixed(1) : '-';
+                let barsHtml = '';
+                let maxCount = 0; Object.values(stat.counts).forEach(c => maxCount = Math.max(maxCount, c));
+                for(let i=1; i<=f.config.maxScore; i++) {
+                    const count = stat.counts[i] || 0;
+                    const height = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                    barsHtml += `<div class="flex flex-col items-center flex-1"><div class="bar-container w-full items-end justify-center"><div class="bar w-full" style="height: ${height}%" data-count="${count}"></div></div><span class="text-[9px] mt-1 font-bold text-gray-400">${i}</span></div>`;
+                }
+                container.innerHTML += `<div class="bg-gray-50 dark:bg-black/20 p-4 rounded-xl"><div class="flex justify-between items-baseline mb-2"><h4 class="font-bold text-lg" style="color:${getSystemColor(sys)}">${sys}</h4><span class="text-xs font-bold text-gray-500">Avg: ${avg} (n=${stat.total})</span></div><div class="flex gap-2 h-16 items-end px-2">${barsHtml}</div></div>`;
+            });
+        }
+        document.getElementById('statsModal').classList.remove('hidden');
+    }
+    function toggleTheme() { state.theme = state.theme === 'light' ? 'dark' : 'light'; applyTheme(state.theme); saveState(); renderMap(); }
+    function applyTheme(t) { if(t === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }
+    function updateProgress() {
+        const f = state.fields[state.currentField];
+        const total = f.config.rows * f.config.lines * f.config.plants;
+        const done = Object.keys(f.data).length;
+        const pct = Math.round((done / total) * 100);
+        document.getElementById('progressBar').style.width = `${pct}%`;
+        document.getElementById('progressText').innerText = `${pct}% DONE`;
+    }
+</script>
+</body>
+</html>
