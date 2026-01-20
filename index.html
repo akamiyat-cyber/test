@@ -269,9 +269,18 @@
         <div id="scoreGrid" class="grid grid-cols-3 gap-3 mb-6 max-h-[30vh] overflow-y-auto"></div>
         <div class="relative mb-6 flex gap-2 items-start">
             <textarea id="comment" class="flex-1 p-4 bg-gray-100 dark:bg-black/30 rounded-2xl h-20 text-sm font-bold resize-none outline-none focus:ring-2 ring-blue-500" placeholder="Comment..."></textarea>
-            <div class="flex flex-col gap-2">
-                <label class="w-12 h-12 rounded-xl flex items-center justify-center text-gray-400 bg-gray-100 dark:bg-black/30 hover:text-blue-500 cursor-pointer text-xl">📷<input type="file" id="photoInput" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelect(event)"></label>
-                <button id="deletePhotoBtn" onclick="removePhoto()" class="hidden w-12 h-8 rounded-xl items-center justify-center text-red-500 bg-red-100 hover:bg-red-200 text-xs font-bold">DEL</button>
+            <div class="flex flex-col gap-1">
+                <label class="w-12 h-9 rounded-lg flex items-center justify-center text-gray-400 bg-gray-100 dark:bg-black/30 hover:text-blue-500 cursor-pointer text-lg" title="カメラを起動">
+                    📷
+                    <input type="file" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelect(event)">
+                </label>
+
+                <label class="w-12 h-9 rounded-lg flex items-center justify-center text-gray-400 bg-gray-100 dark:bg-black/30 hover:text-green-500 cursor-pointer text-lg" title="アルバムから選択">
+                 📂
+                    <input type="file" accept="image/*" class="hidden" onchange="handlePhotoSelect(event)">
+                </label>
+
+                <button id="deletePhotoBtn" onclick="removePhoto()" class="hidden w-12 h-8 rounded-lg items-center justify-center text-red-500 bg-red-100 hover:bg-red-200 text-xs font-bold">DEL</button>
             </div>
             <img id="photoPreview" class="photo-thumb absolute right-16 top-0 bg-white" alt="preview">
         </div>
