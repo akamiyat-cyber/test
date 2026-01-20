@@ -692,11 +692,38 @@
     }
     
     async function resetFieldData() {
-        if(confirm(`⚠️ Clear all DATA for ${state.currentField}?`)) {
-            state.fields[state.currentField].data = {};
-            await saveState(); renderMap(); updateProgress(); document.getElementById('configModal').classList.add('hidden');
+        const fieldName = state.currentField;
+        
+        // 念のためフィールドが存在するか確認
+        if (!state.fields[fieldName]) {
+            alert("Error: Field not found.");
+            return;
+        }
+
+        if(confirm(`⚠️ Clear all DATA for ${fieldName}?`)) {
+            try {
+                // データをリセット（空のオブジェクトにする）
+                state.fields[fieldName].data = {};
+                
+                // データベースへ保存
+                await saveState();
+                
+                // マップと進捗を再描画
+                renderMap();
+                updateProgress();
+                
+                // モーダルを閉じる
+                document.getElementById('configModal').classList.add('hidden');
+                
+                // 完了メッセージ（任意ですが、動作確認のためにあると安心です）
+                // alert("Data has been reset."); 
+            } catch (e) {
+                console.error("Reset failed:", e);
+                alert("Reset failed: " + e.message);
+            }
         }
     }
+    
     async function deleteCurrentField() {
         if(Object.keys(state.fields).length <= 1) return alert("Cannot delete last field.");
         if(confirm(`Delete field "${state.currentField}"?`)) {
