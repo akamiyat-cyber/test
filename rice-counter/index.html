@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1c1917">
+    <link rel="apple-touch-icon" href="icon.png">
+
+    <title>玄米カウンター (PWA)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'media',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { overscroll-behavior: none; }
+        #cvLoader, #dbLoader {
+            position: fixed; inset: 0; background: rgba(28,25,23,0.92); z-index: 9999;
+            display: flex; justify-content: center; align-items: center; color: white;
+            font-weight: bold; flex-direction: column; gap: 10px; text-align: center; padding: 0 2rem;
+        }
+        #cvLoader.hidden, #dbLoader.hidden { display: none; }
+        #outputCanvas { width: 100%; height: auto; display: block; border-radius: 1rem; }
+        #sourceCanvas { display: none; }
+        input[type="range"] { -webkit-appearance: none; height: 6px; border-radius: 999px; background: #e7e5e4; }
+        .dark input[type="range"] { background: #44403c; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+            background: #d97706; cursor: pointer; border: 3px solid white;
+        }
+    </style>
+</head>
+<body class="bg-stone-100 text-stone-800 dark:bg-stone-950 dark:text-stone-100 transition-colors duration-300 flex flex-col h-screen overflow-hidden">
+
+<div id="dbLoader">
+    <div class="animate-spin text-4xl">⏳</div>
+    <div>Loading Database...</div>
+</div>
+
+<div id="cvLoader">
+    <div class="animate-spin text-4xl">⏳</div>
+    <div>画像処理エンジンを読み込み中...<br><span class="text-xs font-normal opacity-70">初回はデータ量が大きいため時間がかかります</span></div>
+</div>
+
+<div class="bg-white dark:bg-stone-900 py-2 text-center border-b border-stone-200 dark:border-stone-800 shadow-sm shrink-0">
+    <h1 class="text-xl font-black tracking-tight">🌾 <span class="text-amber-600">玄米</span>カウンター <span class="text-[10px] text-stone-400 font-normal">v1.0</span></h1>
+</div>
+
+<div class="flex border-b border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shrink-0">
+    <button id="tabCount" class="flex-1 py-3 font-bold text-sm border-b-2 border-amber-600 text-amber-600" onclick="switchTab('count')">📷 カウント</button>
+    <button id="tabHistory" class="flex-1 py-3 font-bold text-sm border-b-2 border-transparent text-stone-400" onclick="switchTab('history')">📋 履歴</button>
+</div>
+
+<div id="countView" class="flex-1 overflow-y-auto p-4">
+    <div class="max-w-md mx-auto">
+
+        <div id="uploadArea" class="flex flex-col gap-4 items-center justify-center py-12">
+            <div class="text-6xl mb-2">🌾</div>
+            <p class="text-sm text-stone-500 dark:text-stone-400 font-bold text-center px-6 leading-relaxed">
+                玄米を平らに広げて撮影してください。<br>粒同士が重ならないほど検出精度が上がります。
+            </p>
+            <label class="w-full max-w-xs">
+                <div class="bg-amber-600 text-white py-4 rounded-2xl font-black text-center text-lg shadow-lg cursor-pointer active:scale-95 transition-transform">📷 写真を撮る</div>
+                <input type="file" accept="image/*" capture="environment" class="hidden" onchange="onFileSelected(event)">
+            </label>
+            <label class="w-full max-w-xs">
+                <div class="bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-200 py-4 rounded-2xl font-black text-center text-lg shadow cursor-pointer active:scale-95 transition-transform">🖼 アルバムから選択</div>
+                <input type="file" accept="image/*" class="hidden" onchange="onFileSelected(event)">
+            </label>
+        </div>
+
+        <div id="resultArea" class="hidden">
+            <div class="relative bg-black rounded-2xl overflow-hidden shadow-lg">
+                <canvas id="outputCanvas"></canvas>
+                <div id="analyzingOverlay" class="hidden absolute inset-0 bg-black/50 flex items-center justify-center text-white font-bold text-sm">
+                    <div class="flex flex-col items-center gap-2"><div class="animate-spin text-2xl">⏳</div>解析中...</div>
+                </div>
+            </div>
+
+            <div class="text-center my-4">
+                <div class="text-xs text-stone-400 font-bold uppercase tracking-widest">検出数</div>
+                <div class="flex items-center justify-center gap-4 mt-1">
+                    <button onclick="adjustCount(-1)" class="w-12 h-12 rounded-full bg-stone-200 dark:bg-stone-800 text-2xl font-black active:scale-95 transition-transform">−</button>
+                    <div id="countDisplay" class="text-6xl font-black text-amber-600 w-32 text-center">0</div>
+                    <button onclick="adjustCount(1)" class="w-12 h-12 rounded-full bg-stone-200 dark:bg-stone-800 text-2xl font-black active:scale-95 transition-transform">＋</button>
+                </div>
+                <div class="text-sm font-bold text-stone-400 -mt-1">粒</div>
+                <div id="adjustedBadge" class="hidden text-[10px] text-amber-500 font-bold mt-1">✏️ 手動調整済み</div>
+            </div>
+
+            <div class="space-y-4 bg-white dark:bg-stone-900 p-4 rounded-2xl shadow-sm">
+                <div>
+                    <label class="text-xs font-bold text-stone-500 block mb-2">背景タイプ</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="bgDark" onclick="setBgType(true)" class="py-2 rounded-lg text-xs font-bold border-2 border-amber-600 text-amber-600">🌑 暗い背景<br>(粒が明るい)</button>
+                        <button id="bgLight" onclick="setBgType(false)" class="py-2 rounded-lg text-xs font-bold border-2 border-stone-300 dark:border-stone-700 text-stone-500">☀️ 明るい背景<br>(粒が暗い)</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-stone-500 flex justify-between"><span>感度調整</span><span id="sensVal">0</span></label>
+                    <input type="range" id="sensSlider" min="-50" max="50" step="5" value="0" class="w-full" onchange="runAnalysis()" oninput="updateLabel('sensSlider','sensVal')">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-stone-500 flex justify-between"><span>最小サイズ（ノイズ除去）</span><span id="minVal">50</span></label>
+                    <input type="range" id="minAreaSlider" min="5" max="500" step="5" value="50" class="w-full" onchange="runAnalysis()" oninput="updateLabel('minAreaSlider','minVal')">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-stone-500 flex justify-between"><span>最大サイズ（結合塊を除外）</span><span id="maxVal">2000</span></label>
+                    <input type="range" id="maxAreaSlider" min="200" max="8000" step="100" value="2000" class="w-full" onchange="runAnalysis()" oninput="updateLabel('maxAreaSlider','maxVal')">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-stone-500 flex justify-between"><span>分離強度（隣接粒の分割）</span><span id="sepVal">0.4</span></label>
+                    <input type="range" id="sepSlider" min="0.1" max="0.8" step="0.05" value="0.4" class="w-full" onchange="runAnalysis()" oninput="updateLabel('sepSlider','sepVal')">
+                </div>
+                <p class="text-[10px] text-stone-400 leading-relaxed">プレビューを見ながら数値を調整してください。検出が多すぎる場合は「最小サイズ」を上げる、粒同士がくっついている場合は「分離強度」を下げてみてください。</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mt-4 pb-4">
+                <button onclick="resetToUpload()" class="py-3 rounded-xl bg-stone-200 dark:bg-stone-800 font-bold text-sm active:scale-95 transition-transform">別の写真</button>
+                <button onclick="saveRecord()" class="py-3 rounded-xl bg-amber-600 text-white font-bold text-sm shadow-lg active:scale-95 transition-transform">💾 記録に保存</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div id="historyView" class="hidden flex-1 overflow-y-auto p-4">
+    <div class="max-w-md mx-auto space-y-3">
+        <div class="flex justify-between items-center">
+            <h2 class="font-black text-lg">履歴</h2>
+            <button onclick="exportCSV()" class="text-xs font-bold bg-green-600 text-white px-3 py-2 rounded-lg shadow">📊 CSV出力</button>
+        </div>
+        <div id="historyList" class="space-y-2"></div>
+    </div>
+</div>
+
+<canvas id="sourceCanvas"></canvas>
+
+<script>
+    function onOpenCvReady() {
+        cv['onRuntimeInitialized'] = () => {
+            cvReady = true;
+            document.getElementById('cvLoader').classList.add('hidden');
+        };
+    }
+</script>
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()"></script>
+
+<script>
+    // --- IndexedDB Wrapper ---
+    const DB_NAME = 'RiceCounterDB';
+    const DB_VERSION = 1;
+    let db = null;
+
+    function initDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = (e) => {
+                const _db = e.target.result;
+                if (!_db.objectStoreNames.contains('history')) {
+                    _db.createObjectStore('history', { keyPath: 'id', autoIncrement: true });
+                }
+            };
+            req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+            req.onerror = (e) => reject(e);
+        });
+    }
+    function dbAdd(value) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['history'], 'readwrite');
+            const req = tx.objectStore('history').add(value);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+    function dbGetAll() {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['history'], 'readonly');
+            const req = tx.objectStore('history').getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+    function dbDelete(id) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['history'], 'readwrite');
+            const req = tx.objectStore('history').delete(id);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+    function dbUpdateMemo(id, memo) {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['history'], 'readwrite');
+            const store = tx.objectStore('history');
+            const req = store.get(id);
+            req.onsuccess = () => {
+                const rec = req.result;
+                if (!rec) { resolve(); return; }
+                rec.memo = memo;
+                const putReq = store.put(rec);
+                putReq.onsuccess = () => resolve();
+                putReq.onerror = () => reject(putReq.error);
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    // --- Service Worker Registration ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('SW registered'))
+                .catch(err => console.log('SW fail', err));
+        });
+    }
+
+    // --- App State ---
+    let cvReady = false;
+    let originalMat = null;
+    let currentCount = 0;
+    let manualAdjust = false;
+    const state = { bgDark: true };
+
+    window.onload = async () => {
+        try {
+            await initDB();
+            await renderHistory();
+        } catch (e) {
+            console.error('DB Error', e);
+            alert('データベースエラーが発生しました。');
+        } finally {
+            document.getElementById('dbLoader').classList.add('hidden');
+        }
+    };
+
+    /* --- Tabs --- */
+    function switchTab(tab) {
+        const isCount = tab === 'count';
+        document.getElementById('countView').classList.toggle('hidden', !isCount);
+        document.getElementById('historyView').classList.toggle('hidden', isCount);
+
+        const tc = document.getElementById('tabCount');
+        const th = document.getElementById('tabHistory');
+        tc.classList.toggle('border-amber-600', isCount);
+        tc.classList.toggle('text-amber-600', isCount);
+        tc.classList.toggle('border-transparent', !isCount);
+        tc.classList.toggle('text-stone-400', !isCount);
+
+        th.classList.toggle('border-amber-600', !isCount);
+        th.classList.toggle('text-amber-600', !isCount);
+        th.classList.toggle('border-transparent', isCount);
+        th.classList.toggle('text-stone-400', isCount);
+
+        if (!isCount) renderHistory();
+    }
+
+    /* --- Image loading --- */
+    function onFileSelected(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        if (!cvReady) {
+            alert('画像処理エンジンを読み込み中です。しばらく待ってから再度お試しください。');
+            event.target.value = '';
+            return;
+        }
+        loadImageFile(file).catch(err => {
+            console.error(err);
+            alert('画像の読み込みに失敗しました。');
+        });
+        event.target.value = '';
+    }
+
+    async function loadImageFile(file) {
+        let bitmap;
+        try {
+            bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        } catch (e) {
+            bitmap = await createImageBitmap(file);
+        }
+
+        const maxDim = 1000;
+        const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+        const w = Math.max(1, Math.round(bitmap.width * scale));
+        const h = Math.max(1, Math.round(bitmap.height * scale));
+
+        const srcCanvas = document.getElementById('sourceCanvas');
+        srcCanvas.width = w;
+        srcCanvas.height = h;
+        srcCanvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+        if (bitmap.close) bitmap.close();
+
+        if (originalMat) { originalMat.delete(); originalMat = null; }
+        originalMat = cv.imread('sourceCanvas');
+
+        document.getElementById('uploadArea').classList.add('hidden');
+        document.getElementById('resultArea').classList.remove('hidden');
+
+        runAnalysis();
+    }
+
+    function resetToUpload() {
+        if (originalMat) { originalMat.delete(); originalMat = null; }
+        document.getElementById('resultArea').classList.add('hidden');
+        document.getElementById('uploadArea').classList.remove('hidden');
+        currentCount = 0;
+        manualAdjust = false;
+    }
+
+    /* --- Controls --- */
+    function updateLabel(sliderId, labelId) {
+        document.getElementById(labelId).innerText = document.getElementById(sliderId).value;
+    }
+
+    function setBgType(isDark) {
+        state.bgDark = isDark;
+        const dark = document.getElementById('bgDark');
+        const light = document.getElementById('bgLight');
+        dark.classList.toggle('border-amber-600', isDark);
+        dark.classList.toggle('text-amber-600', isDark);
+        dark.classList.toggle('border-stone-300', !isDark);
+        dark.classList.toggle('dark:border-stone-700', !isDark);
+        dark.classList.toggle('text-stone-500', !isDark);
+
+        light.classList.toggle('border-amber-600', !isDark);
+        light.classList.toggle('text-amber-600', !isDark);
+        light.classList.toggle('border-stone-300', isDark);
+        light.classList.toggle('dark:border-stone-700', isDark);
+        light.classList.toggle('text-stone-500', isDark);
+
+        runAnalysis();
+    }
+
+    function adjustCount(delta) {
+        if (!originalMat) return;
+        currentCount = Math.max(0, currentCount + delta);
+        manualAdjust = true;
+        updateCountDisplay();
+    }
+
+    function updateCountDisplay() {
+        document.getElementById('countDisplay').innerText = currentCount;
+        document.getElementById('adjustedBadge').classList.toggle('hidden', !manualAdjust);
+    }
+
+    /* --- Analysis (OpenCV.js) --- */
+    function runAnalysis() {
+        if (!cvReady || !originalMat) return;
+        const overlayEl = document.getElementById('analyzingOverlay');
+        overlayEl.classList.remove('hidden');
+        setTimeout(() => {
+            try {
+                doAnalyze();
+            } catch (err) {
+                console.error(err);
+                alert('解析中にエラーが発生しました: ' + err.message);
+            } finally {
+                overlayEl.classList.add('hidden');
+            }
+        }, 30);
+    }
+
+    function doAnalyze() {
+        const mats = [];
+        const track = (m) => { mats.push(m); return m; };
+
+        try {
+            const src = track(originalMat.clone());
+            const gray = track(new cv.Mat());
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+
+            const invert = !state.bgDark;
+            const baseType = invert ? cv.THRESH_BINARY_INV : cv.THRESH_BINARY;
+
+            const thresh = track(new cv.Mat());
+            const otsuVal = cv.threshold(gray, thresh, 0, 255, baseType + cv.THRESH_OTSU);
+
+            const offset = parseInt(document.getElementById('sensSlider').value, 10);
+            if (offset !== 0) {
+                const manualVal = Math.min(255, Math.max(0, otsuVal + offset));
+                cv.threshold(gray, thresh, manualVal, 255, baseType);
+            }
+
+            const kernel = track(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(3, 3)));
+            const opening = track(new cv.Mat());
+            cv.morphologyEx(thresh, opening, cv.MORPH_OPEN, kernel, new cv.Point(-1, -1), 2);
+
+            const dist = track(new cv.Mat());
+            cv.distanceTransform(opening, dist, cv.DIST_L2, 5);
+
+            const minMax = cv.minMaxLoc(dist);
+            const maxVal = minMax.maxVal;
+            const sepRatio = parseFloat(document.getElementById('sepSlider').value);
+
+            const sureFg = track(new cv.Mat());
+            cv.threshold(dist, sureFg, sepRatio * maxVal, 255, cv.THRESH_BINARY);
+            sureFg.convertTo(sureFg, cv.CV_8U);
+
+            const sureBg = track(new cv.Mat());
+            cv.dilate(opening, sureBg, kernel, new cv.Point(-1, -1), 3);
+
+            const unknown = track(new cv.Mat());
+            cv.subtract(sureBg, sureFg, unknown);
+
+            const markers = track(new cv.Mat());
+            cv.connectedComponents(sureFg, markers, 8, cv.CV_32S);
+
+            const md = markers.data32S;
+            const ud = unknown.data;
+            for (let i = 0; i < md.length; i++) {
+                md[i] += 1;
+                if (ud[i] === 255) md[i] = 0;
+            }
+
+            const src3 = track(new cv.Mat());
+            cv.cvtColor(src, src3, cv.COLOR_RGBA2RGB);
+            cv.watershed(src3, markers);
+
+            const minArea = parseInt(document.getElementById('minAreaSlider').value, 10);
+            const maxArea = parseInt(document.getElementById('maxAreaSlider').value, 10);
+
+            const areaMap = new Map();
+            for (let i = 0; i < md.length; i++) {
+                const label = md[i];
+                if (label > 1) areaMap.set(label, (areaMap.get(label) || 0) + 1);
+            }
+            const validLabels = new Set();
+            areaMap.forEach((area, label) => {
+                if (area >= minArea && area <= maxArea) validLabels.add(label);
+            });
+
+            const overlay = track(src.clone());
+            const od = overlay.data;
+            for (let i = 0; i < md.length; i++) {
+                const label = md[i];
+                const idx = i * 4;
+                if (label === -1) {
+                    od[idx] = 255; od[idx + 1] = 50; od[idx + 2] = 50;
+                } else if (validLabels.has(label)) {
+                    const c = labelColor(label);
+                    od[idx] = (od[idx] + c[0]) >> 1;
+                    od[idx + 1] = (od[idx + 1] + c[1]) >> 1;
+                    od[idx + 2] = (od[idx + 2] + c[2]) >> 1;
+                }
+            }
+
+            cv.imshow('outputCanvas', overlay);
+
+            currentCount = validLabels.size;
+            manualAdjust = false;
+            updateCountDisplay();
+        } finally {
+            mats.forEach(m => { try { m.delete(); } catch (e) {} });
+        }
+    }
+
+    function labelColor(label) {
+        const hue = (label * 47) % 360;
+        return hslToRgb(hue / 360, 0.9, 0.5);
+    }
+    function hslToRgb(h, s, l) {
+        let r, g, b;
+        if (s === 0) { r = g = b = l; }
+        else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1 / 3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1 / 3);
+        }
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    }
+
+    /* --- History / Persistence --- */
+    async function saveRecord() {
+        const outputCanvas = document.getElementById('outputCanvas');
+        const thumbCanvas = document.createElement('canvas');
+        const scale = Math.min(1, 400 / outputCanvas.width);
+        thumbCanvas.width = Math.max(1, Math.round(outputCanvas.width * scale));
+        thumbCanvas.height = Math.max(1, Math.round(outputCanvas.height * scale));
+        thumbCanvas.getContext('2d').drawImage(outputCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+        const thumbnail = thumbCanvas.toDataURL('image/jpeg', 0.7);
+
+        const record = {
+            date: new Date().toISOString(),
+            count: currentCount,
+            manualAdjust,
+            memo: '',
+            thumbnail
+        };
+
+        try {
+            await dbAdd(record);
+            alert(`記録しました: ${currentCount} 粒`);
+            resetToUpload();
+            switchTab('history');
+        } catch (e) {
+            console.error(e);
+            alert('保存に失敗しました。');
+        }
+    }
+
+    async function renderHistory() {
+        const list = document.getElementById('historyList');
+        const records = await dbGetAll();
+        records.sort((a, b) => new Date(b.date) - new Date(a.date));
+        list.innerHTML = '';
+
+        if (records.length === 0) {
+            list.innerHTML = '<div class="text-center text-stone-400 py-10 text-sm font-bold">記録がありません</div>';
+            return;
+        }
+
+        records.forEach(r => {
+            const d = new Date(r.date);
+            const dateStr = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const div = document.createElement('div');
+            div.className = 'flex items-center gap-3 bg-white dark:bg-stone-900 p-3 rounded-xl shadow-sm';
+            div.innerHTML = `
+                <img src="${r.thumbnail}" class="w-16 h-16 object-cover rounded-lg border border-stone-200 dark:border-stone-700 shrink-0">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline gap-1">
+                        <span class="text-2xl font-black text-amber-600">${r.count}</span>
+                        <span class="text-xs font-bold text-stone-400">粒</span>
+                        ${r.manualAdjust ? '<span class="text-[10px] text-amber-500">✏️ 手動調整</span>' : ''}
+                    </div>
+                    <div class="text-[10px] text-stone-400 font-bold">${dateStr}</div>
+                    <input type="text" placeholder="メモ" value="${(r.memo || '').replace(/"/g, '&quot;')}" class="mt-1 w-full text-xs bg-stone-100 dark:bg-stone-800 rounded px-2 py-1 outline-none">
+                </div>
+                <button class="text-red-400 hover:text-red-600 text-xl px-2 shrink-0">🗑</button>
+            `;
+            div.querySelector('input').addEventListener('change', (e) => updateMemo(r.id, e.target.value));
+            div.querySelector('button').addEventListener('click', () => deleteRecord(r.id));
+            list.appendChild(div);
+        });
+    }
+
+    async function updateMemo(id, memo) {
+        try { await dbUpdateMemo(id, memo); } catch (e) { console.error(e); }
+    }
+
+    async function deleteRecord(id) {
+        if (!confirm('この記録を削除しますか?')) return;
+        await dbDelete(id);
+        renderHistory();
+    }
+
+    async function exportCSV() {
+        const records = await dbGetAll();
+        records.sort((a, b) => new Date(a.date) - new Date(b.date));
+        let csv = '日時,検出数,手動調整,メモ\n';
+        records.forEach(r => {
+            csv += `${r.date},${r.count},${r.manualAdjust ? 'はい' : 'いいえ'},"${(r.memo || '').replace(/"/g, '""')}"\n`;
+        });
+        const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv' });
+        const file = new File([blob], `RiceCounter_${new Date().toISOString().slice(0, 10)}.csv`, { type: 'text/csv' });
+
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ title: '玄米カウント記録', files: [file] }).catch(() => {});
+        } else {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = file.name;
+            a.click();
+        }
+    }
+</script>
+</body>
+</html>
