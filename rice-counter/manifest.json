@@ -1,0 +1,16 @@
+{
+  "name": "玄米カウンター",
+  "short_name": "玄米カウンター",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#1c1917",
+  "theme_color": "#1c1917",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
