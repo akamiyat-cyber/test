@@ -4,6 +4,7 @@
 
 import type { ProofreadMode, RawProofreadResult } from "@/lib/types";
 import type { CslItem } from "@/lib/references/csl";
+import type { PlanId } from "@/config/limits";
 
 // ---- POST /api/proofread ----
 export interface ProofreadRequest {
@@ -185,6 +186,42 @@ export interface CompanionDocRequest {
 }
 export interface CompanionDocResponse {
   result: string;
+}
+
+// ---- GET /api/usage ----
+export interface UsageResponse {
+  plan: PlanId;
+  used: number;
+  /** null when quotas aren't enforced (local mode / Supabase not configured) — JSON has no Infinity. */
+  limit: number | null;
+  billingEnabled: boolean;
+}
+
+// ---- POST /api/billing/checkout ----
+export interface CheckoutRequest {
+  successUrl: string;
+  cancelUrl: string;
+}
+export interface CheckoutResponse {
+  url: string;
+}
+
+// ---- POST /api/billing/portal ----
+export interface PortalRequest {
+  returnUrl: string;
+}
+export interface PortalResponse {
+  url: string;
+}
+
+// ---- POST /api/integrations/plagiarism-check ----
+export interface PlagiarismCheckRequest {
+  text: string;
+}
+export interface PlagiarismCheckResponse {
+  overallSimilarityPercent: number;
+  matches: { matchedText: string; sourceUrl?: string; sourceTitle?: string; similarityPercent: number }[];
+  provider: string;
 }
 
 export interface ApiError {

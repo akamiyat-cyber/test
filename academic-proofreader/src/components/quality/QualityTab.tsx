@@ -7,11 +7,12 @@ import { Editor } from "@/components/proofread/Editor";
 import { WordCountBadge } from "@/components/proofread/WordCountBadge";
 import { CompanionDocsPanel } from "./CompanionDocsPanel";
 import { GuidelineChecklistPanel } from "./GuidelineChecklistPanel";
+import { PlagiarismCheckPanel } from "./PlagiarismCheckPanel";
 import { StatementGeneratorPanel } from "./StatementGeneratorPanel";
 import { StatsCheckPanel } from "./StatsCheckPanel";
 import { TitleAbstractPanel } from "./TitleAbstractPanel";
 
-type QualitySubTab = "checklist" | "stats" | "statements" | "title-abstract" | "companion-docs";
+type QualitySubTab = "checklist" | "stats" | "statements" | "title-abstract" | "companion-docs" | "plagiarism";
 
 const SUB_TABS: { id: QualitySubTab; label: string }[] = [
   { id: "checklist", label: "チェックリスト" },
@@ -19,6 +20,7 @@ const SUB_TABS: { id: QualitySubTab; label: string }[] = [
   { id: "statements", label: "ステートメント" },
   { id: "title-abstract", label: "タイトル・要旨" },
   { id: "companion-docs", label: "付随文書" },
+  { id: "plagiarism", label: "剽窃・AI検出" },
 ];
 
 export function QualityTab() {
@@ -63,6 +65,7 @@ export function QualityTab() {
           {subTab === "statements" && <StatementGeneratorPanel />}
           {subTab === "title-abstract" && <TitleAbstractPanel />}
           {subTab === "companion-docs" && <CompanionDocsPanel />}
+          {subTab === "plagiarism" && <PlagiarismCheckPanel />}
         </div>
       </div>
     </div>

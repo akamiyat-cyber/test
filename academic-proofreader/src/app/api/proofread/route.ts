@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateStructured } from "@/lib/ai/gemini";
-import { checkRateLimit, rateLimitResponseBody } from "@/lib/rateLimit";
-import { resolveUser } from "@/lib/serverAuth";
+import { gateAiRequest } from "@/lib/aiGate";
 import { recordUsage } from "@/lib/usage";
 import { getJournalProfile } from "@/lib/journalProfiles";
 import { getStylePreset } from "@/lib/stylePresets";
@@ -25,11 +24,8 @@ function isValidRawResult(value: unknown): value is RawProofreadResult {
 }
 
 export async function POST(req: NextRequest) {
-  const { userId } = await resolveUser(req);
-  const limit = checkRateLimit(req, "ai", userId);
-  if (!limit.allowed) {
-    return NextResponse.json(rateLimitResponseBody(limit), { status: 429 });
-  }
+  const { userId, blocked } = await gateAiRequest(req);
+  if (blocked) return blocked;
 
   let body: ProofreadRequest;
   try {

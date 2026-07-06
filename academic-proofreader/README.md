@@ -1,6 +1,6 @@
 # Academic English Proofreader
 
-Academic English proofreading web app (Paperpal-style) being extended into a full scientific paper authoring environment. Built with Next.js (App Router), TypeScript, Tailwind CSS, the Google Gemini API (`@google/genai`), and Supabase (Auth + PostgreSQL). See `docs/ARCHITECTURE.md` for the full design and phase plan.
+Academic English proofreading web app (Paperpal-style), extended into a full scientific paper authoring environment. Built with Next.js (App Router), TypeScript, Tailwind CSS, the Google Gemini API (`@google/genai`), Supabase (Auth + PostgreSQL), and Stripe (billing framework). All six planned phases (see `docs/ARCHITECTURE.md`) are implemented.
 
 ## Getting started
 
@@ -12,7 +12,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Without Supabase env vars the app runs in **local mode** (localStorage only), exactly like before. To enable cloud persistence: create a Supabase project, run `supabase/migrations/0001_init.sql` against it (SQL editor or `supabase db push`), and set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Sign-in then migrates the local draft to the cloud and keeps them in sync (`SUPABASE_SERVICE_ROLE_KEY` additionally enables usage metering).
+Without Supabase env vars the app runs in **local mode** (localStorage only), exactly like before. To enable cloud persistence: create a Supabase project, run `supabase/migrations/0001_init.sql` then `0002_billing.sql` against it (SQL editor or `supabase db push`), and set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Sign-in then migrates the local draft to the cloud and keeps them in sync. `SUPABASE_SERVICE_ROLE_KEY` additionally enables usage metering, daily plan quotas, and the Stripe webhook's writes. Add `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_PRO` on top of that to enable upgrade/billing-portal buttons — see `.env.example`.
 
 ## Features
 
@@ -28,6 +28,7 @@ Without Supabase env vars the app runs in **local mode** (localStorage only), ex
 - Version history (one snapshot per proofreading run) with a word-level diff against the current text, plus a lightweight comment thread.
 - Copy-to-clipboard and `.docx` export of the revised text.
 - Optional Supabase-backed accounts: signed-out/unconfigured → localStorage-only; signed in → documents, versions, whitelist, and references sync to Postgres (RLS-scoped per user).
+- **Usage & billing (productization)**: every Gemini-backed route goes through one gate (`src/lib/aiGate.ts`) enforcing a per-minute rate limit *and* a daily free/pro quota (`src/lib/quota.ts`, backed by `usage_events`); a sidebar panel shows today's usage and plan. A working (but disabled-until-configured) Stripe framework handles checkout, the billing portal, and webhook-driven plan updates — see `src/lib/billing/stripe.ts`. Plagiarism/AI-generated-text detection is deliberately *not* implemented in-house; only the integration interface exists (`src/lib/integrations/plagiarismCheck.ts`), with the reasoning in that file's header comment.
 
 ## Architecture
 

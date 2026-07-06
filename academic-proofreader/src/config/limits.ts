@@ -1,5 +1,6 @@
-// Rate limit and plan quota configuration (Phase 0 framework; Phase 5 will
-// wire plan lookup + persistent usage metering into these numbers).
+// Rate limit and plan quota configuration. Plan quotas are enforced in
+// src/lib/quota.ts (Phase 5), looked up from profiles.plan and checked
+// against usage_events aggregates recorded by src/lib/usage.ts (Phase 0).
 
 export interface RateLimitRule {
   /** Sliding window length in milliseconds. */

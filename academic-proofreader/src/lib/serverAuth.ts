@@ -9,13 +9,16 @@ import { getSupabaseConfig } from "@/config/env";
 
 export interface ServerAuthResult {
   userId: string | null;
+  userEmail: string | null;
 }
+
+const ANONYMOUS: ServerAuthResult = { userId: null, userEmail: null };
 
 export async function resolveUser(req: NextRequest): Promise<ServerAuthResult> {
   const config = getSupabaseConfig();
   const authHeader = req.headers.get("authorization");
   if (!config || !authHeader?.startsWith("Bearer ")) {
-    return { userId: null };
+    return ANONYMOUS;
   }
   const token = authHeader.slice("Bearer ".length).trim();
   try {
@@ -23,10 +26,10 @@ export async function resolveUser(req: NextRequest): Promise<ServerAuthResult> {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data.user) return { userId: null };
-    return { userId: data.user.id };
+    if (error || !data.user) return ANONYMOUS;
+    return { userId: data.user.id, userEmail: data.user.email ?? null };
   } catch {
     // Invalid/expired token → treat as anonymous rather than failing the call.
-    return { userId: null };
+    return ANONYMOUS;
   }
 }

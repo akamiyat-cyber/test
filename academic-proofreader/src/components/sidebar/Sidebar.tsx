@@ -5,6 +5,7 @@ import { AuthPanel } from "@/components/auth/AuthPanel";
 import { getJournalProfile, journalProfiles } from "@/lib/journalProfiles";
 import { stylePresets } from "@/lib/stylePresets";
 import { JournalProfileInfo } from "./JournalProfileInfo";
+import { UsagePanel } from "./UsagePanel";
 import { WhitelistPanel } from "./WhitelistPanel";
 
 export function Sidebar() {
@@ -36,6 +37,7 @@ export function Sidebar() {
           同期エラー: {cloudSyncError}
         </p>
       )}
+      <UsagePanel />
 
       <div>
         <label className="mb-1 block text-xs font-semibold text-slate-700">ジャーナル</label>

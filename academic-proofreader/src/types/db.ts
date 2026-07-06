@@ -8,6 +8,10 @@ export interface ProfileRow {
   display_name: string | null;
   plan: "free" | "pro";
   created_at: string;
+  // Phase 5 (0002_billing.sql) — written only by the Stripe webhook (service role).
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: string | null;
 }
 
 export interface DocumentRow {

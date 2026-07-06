@@ -70,7 +70,9 @@ academic-proofreader/
 全テーブル `user_id uuid references auth.users` を持ち、RLSで本人のみアクセス可。
 
 ```
-profiles            id(=auth.users.id), display_name, plan('free'|'pro'), created_at
+profiles            id(=auth.users.id), display_name, plan('free'|'pro'), created_at,
+                    stripe_customer_id, stripe_subscription_id, subscription_status
+                    (最後の3列はフェーズ5、Stripe webhookのみが書き込む — 後述)
 documents           id, user_id, title, journal_id, style_preset_id,
                     body_text, caption_text, reviewer_comments_text, updated_at, created_at
 document_versions   id, document_id, user_id, mode('body'|'caption'),
@@ -91,6 +93,7 @@ usage_events        id, user_id(null可=匿名), route, model, input_tokens,
 - `"references"` はPostgreSQLの予約語のためクォート必須。supabase-jsの `.from('references')` はそのまま動く。
 - CSL-JSONを正とし、BibTeX/RIS/各文献APIからのインポートはすべてCSL-JSONへ正規化して保存(フェーズ2)。
 - 剽窃チェック等の外部サービス連携はDBに持たずインターフェースのみ(フェーズ5)。
+- `profiles.plan`/`stripe_*`/`subscription_status` は0002_billing.sqlで `authenticated` ロールのUPDATE権限を`display_name`のみに制限している。RLSの「本人の行のみ」ポリシーは行単位の制御であり列単位ではないため、これがないと利用者が自分で`plan='pro'`に書き換えられてしまう。書き込みはStripe webhook(service roleキー、grantを無視できる)のみが行う。
 
 ## API Route一覧
 
@@ -114,9 +117,15 @@ DBのCRUD(documents等)はAPI Routeを経由せず、ブラウザからsupabase-
 | POST /api/quality/statements | 3 | 入力フォーム → 各種ステートメント | Geminiテキスト |
 | POST /api/quality/title-abstract | 3 | 現行タイトル/要旨 → 改善案JSON | Gemini構造化 |
 | POST /api/quality/companion-docs | 3 | 原稿 → PLS/Highlights等 | Gemini構造化 |
-| GET  /api/usage | 5 | 自分の使用量集計 | なし |
+| GET  /api/usage | 5 | 自分の今日のAI利用数・プラン・上限・課金有効フラグ | なし |
+| POST /api/billing/checkout | 5 | 成功/キャンセルURL → Stripe Checkout URL | なし(Stripe API) |
+| POST /api/billing/portal | 5 | 戻り先URL → Stripeカスタマーポータル URL | なし(Stripe API) |
+| POST /api/billing/webhook | 5 | Stripe Webhook(署名検証必須) → profiles更新 | なし(Stripe API) |
+| POST /api/integrations/plagiarism-check | 5 | 本文 → 501(未実装、意図的) | なし(未実装) |
 
 **実装メモ**: LaTeX/Markdownエクスポートと図表・数式の採番・ジャーナルテンプレート整形(フェーズ4)は、当初 `POST /api/export/latex` / `POST /api/export/markdown` として計画していたが、実装時にAIを一切使わない純粋なテキスト変換であり、サーバーを経由する理由がない(往復遅延がなく、オフラインでも動く)と判断し、`src/lib/export/*.ts` のクライアントサイド関数として実装した。API Routeは存在しない。
+
+すべてのGeminiバックエンドルート(校正・執筆支援・文献チェック・品質チェック、計12ルート)は `src/lib/aiGate.ts` の `gateAiRequest()` を経由する。これは既存の `checkRateLimit`(スライディングウィンドウ、Phase 0)と新設の `checkPlanQuota`(1日あたりのプラン上限、Phase 5)を1箇所にまとめたもので、各ルートの重複コードを減らしつつ両方の制限を確実に適用する。
 
 ## データフロー
 
@@ -151,7 +160,7 @@ Next.js API Route (サーバー)
 | 2 | BibTeX/RISインポート・引用検索・引用チェック・書式整形 | 文献タブでインポート→検索→挿入→整形が一連で動く | ✅ 完了 |
 | 3 | ガイドライン/統計チェック・ステートメント・最適化・付随文書 | 品質タブの各チェックがJSONで返りUI表示される | ✅ 完了 |
 | 4 | LaTeX/Markdownエクスポート・採番/相互参照・テンプレ整形 | エクスポートボタンからLaTeX/MDがダウンロードできる | ✅ 完了 |
-| 5 | 使用量計測・課金枠組み・外部チェック連携IF | usage_eventsが記録され無料枠超過時に429が返る | 未着手 |
+| 5 | 使用量計測・課金枠組み・外部チェック連携IF | usage_eventsが記録され無料枠超過時に429が返る | ✅ 完了 |
 
 ### フェーズ2の実装メモ
 
@@ -174,6 +183,14 @@ Next.js API Route (サーバー)
 - LaTeXエクスポート(`src/lib/export/latex.ts`)は図表/数式の番号をハードコードせず`\label`/`\ref`に変換し、LaTeX自身の自動採番に委ねる(並び替えへの耐性のため)。Markdownエクスポート(`markdown.ts`)はMarkdownにネイティブな相互参照機構がないため、番号をその場で解決してプレーンテキスト化する。
 - テンプレート整形(`templateFormat.ts`)は既存の`journalProfiles.ts`の`headingTemplate`をそのまま利用し、本文中の`##`見出しを正規化・キーワード一致で対応付けて並べ替える。AIを使わない決定的なロジックのため、フェーズ4は新規API Routeを1つも追加していない。
 
+### フェーズ5の実装メモ
+
+- `src/lib/aiGate.ts` がGeminiバックエンドの全12ルートの入口を一本化(認証解決→レート制限→プラン別クォータの順)。個々のルートは `const { userId, blocked } = await gateAiRequest(req); if (blocked) return blocked;` の2行だけで済む。
+- `src/lib/quota.ts` の `checkPlanQuota()` は `profiles.plan` を引いて `config/limits.ts` の `planQuotas` と突き合わせ、当日分の `usage_events` 件数と比較する。匿名リクエスト・Supabase未設定・DBエラー時はすべて「許可」側にフェイルオープンする(計測系の不調で機能が止まってはいけないため)。
+- Stripe連携(`src/lib/billing/stripe.ts` + `/api/billing/*`)は実際に動く実装だが、`STRIPE_SECRET_KEY`等が無い限り無効化される(Gemini/Supabaseと同じ「未設定なら機能OFF」の方針)。Webhookの署名検証はオフラインで(Stripe公式のテストユーティリティを使い、正しい署名の受理と改ざん署名の拒否の両方を)検証済み。
+- 剽窃チェック・AI検出(`src/lib/integrations/plagiarismCheck.ts`)は仕様どおり自前実装しない。理由をコード内コメントに明記し、`getPlagiarismCheckProvider()` は常に `null` を返す。`/api/integrations/plagiarism-check` はこれを検知して501を返す(UIの「品質・投稿準備」タブの「剽窃・AI検出」サブタブから実際に叩いて確認できる)。
+- `usage_events` への計測はフェーズ0から変更なし。フェーズ5で追加したのは「読む」側(クォータ判定・`/api/usage`)であり、書き込み側(`recordUsage`)はそのまま流用している。
+
 ## 環境変数
 
 ```
@@ -181,7 +198,10 @@ GEMINI_API_KEY                 # サーバーのみ。必須(AI機能を使う�
 GEMINI_MODEL                   # 任意。既定は config/models.ts の DEFAULT
 NEXT_PUBLIC_SUPABASE_URL       # 任意。未設定ならローカルモード
 NEXT_PUBLIC_SUPABASE_ANON_KEY  # 任意。同上
+SUPABASE_SERVICE_ROLE_KEY      # 任意。usage_events計測・クォータ判定・Stripe webhookの書き込みに必要
+STRIPE_SECRET_KEY              # 任意。未設定なら課金機能は501で無効化
+STRIPE_WEBHOOK_SECRET          # 任意。Webhook署名検証に必須(STRIPE_SECRET_KEYと併用)
+STRIPE_PRICE_PRO               # 任意。"pro"プランに対応するStripeのPrice ID
 ```
 
 いずれも未設定でもアプリは起動する(該当機能が無効化されるだけ)。
-```
