@@ -144,14 +144,22 @@ Next.js API Route (サーバー)
 
 ## フェーズ計画と完了条件
 
-| フェーズ | 内容 | 完了条件(動く状態) |
-|---|---|---|
-| 0 | Supabase Auth/スキーマ/同期、Gemini移行、レート制限 | 未設定環境ではローカルモードで従来どおり動作。設定済み環境ではログイン→原稿がDB保存され別端末で復元 |
-| 1 | アウトライン生成・セクションドラフト・Phrasebank・言い換え | 執筆タブから各機能がGemini構造化出力で動く |
-| 2 | BibTeX/RISインポート・引用検索・引用チェック・書式整形 | 文献タブでインポート→検索→挿入→整形が一連で動く |
-| 3 | ガイドライン/統計チェック・ステートメント・最適化・付随文書 | 品質タブの各チェックがJSONで返りUI表示される |
-| 4 | LaTeX/Markdownエクスポート・採番/相互参照・テンプレ整形 | エクスポートボタンからLaTeX/MDがダウンロードできる |
-| 5 | 使用量計測・課金枠組み・外部チェック連携IF | usage_eventsが記録され無料枠超過時に429が返る |
+| フェーズ | 内容 | 完了条件(動く状態) | 状態 |
+|---|---|---|---|
+| 0 | Supabase Auth/スキーマ/同期、Gemini移行、レート制限 | 未設定環境ではローカルモードで従来どおり動作。設定済み環境ではログイン→原稿がDB保存され別端末で復元 | ✅ 完了 |
+| 1 | アウトライン生成・セクションドラフト・Phrasebank・言い換え | 執筆タブから各機能がGemini構造化出力で動く | ✅ 完了 |
+| 2 | BibTeX/RISインポート・引用検索・引用チェック・書式整形 | 文献タブでインポート→検索→挿入→整形が一連で動く | ✅ 完了 |
+| 3 | ガイドライン/統計チェック・ステートメント・最適化・付随文書 | 品質タブの各チェックがJSONで返りUI表示される | 未着手 |
+| 4 | LaTeX/Markdownエクスポート・採番/相互参照・テンプレ整形 | エクスポートボタンからLaTeX/MDがダウンロードできる | 未着手 |
+| 5 | 使用量計測・課金枠組み・外部チェック連携IF | usage_eventsが記録され無料枠超過時に429が返る | 未着手 |
+
+### フェーズ2の実装メモ
+
+- `src/lib/references/csl.ts` — CSL-JSON(https://citationstyles.org/)の最小サブセット型。フル仕様ではなく実際に使うフィールドのみだが、DBの`references.csl` jsonbカラムにもこの形で保存するため、将来 citeproc-js 等の本格的なCSLプロセッサに差し替える際もデータ移行なしで済む設計にしている。
+- `src/lib/references/bibtex.ts` / `ris.ts` — 手書きのBibTeX/RISパーサ(外部npm依存なし)。ネストした`{{}}`や`"..."`引用符、複数著者の"and"区切りに対応。
+- `src/lib/references/providers.ts` — Crossref / Semantic Scholar / PubMed への公開APIファンアウト(`Promise.allSettled`で1ソースの失敗が他をブロックしない)。
+- `src/lib/references/formatters.ts` — Vancouver(numbered)/APA(author-date)/Nature(上付き番号)の**簡易フォーマッタ**(フルCSLプロセッサではない)。`journalProfiles.ts`の`citationStyleId`/`etAlMax`で切り替え。
+- 引用順(`citationOrder`)はクライアント側で「初めて引用された順」を記録し、numbered系スタイルの採番と書式整形の並び順に使う。本文中の既存番号を後から自動リナンバリングする機能は未実装(スコープ外として明記)。
 
 ## 環境変数
 

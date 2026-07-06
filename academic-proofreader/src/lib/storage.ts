@@ -8,10 +8,13 @@
 //   academic-proofreader:whitelist  -> WhitelistTerm[]
 //   academic-proofreader:versions   -> VersionSnapshot[]
 //   academic-proofreader:comments   -> CommentItem[]
+//   academic-proofreader:references -> LibraryReference[]
+//   academic-proofreader:citationOrder -> string[] (LibraryReference ids)
 
 import type {
   CommentItem,
   DraftState,
+  LibraryReference,
   SettingsState,
   VersionSnapshot,
   WhitelistTerm,
@@ -23,6 +26,8 @@ const KEYS = {
   whitelist: "academic-proofreader:whitelist",
   versions: "academic-proofreader:versions",
   comments: "academic-proofreader:comments",
+  references: "academic-proofreader:references",
+  citationOrder: "academic-proofreader:citationOrder",
 } as const;
 
 const MAX_VERSIONS = 50;
@@ -108,4 +113,20 @@ export function loadComments(): CommentItem[] {
 
 export function saveComments(comments: CommentItem[]): void {
   writeJSON(KEYS.comments, comments);
+}
+
+export function loadReferences(): LibraryReference[] {
+  return readJSON(KEYS.references, []);
+}
+
+export function saveReferences(references: LibraryReference[]): void {
+  writeJSON(KEYS.references, references);
+}
+
+export function loadCitationOrder(): string[] {
+  return readJSON(KEYS.citationOrder, []);
+}
+
+export function saveCitationOrder(order: string[]): void {
+  writeJSON(KEYS.citationOrder, order);
 }

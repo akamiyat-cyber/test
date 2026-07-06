@@ -4,6 +4,14 @@
 // Every field is used both to steer the Claude prompt (see prompt.ts) and to
 // render the reference panel in the UI, so keep descriptions short and concrete.
 
+/**
+ * Bibliography/in-text citation family used by src/lib/references/formatters.ts.
+ * This is a small, hand-written set of formatters (not a full CSL processor)
+ * — see that file's header comment for why, and how to swap in a real CSL
+ * engine later without changing this id.
+ */
+export type CitationStyleId = "vancouver" | "apa" | "nature";
+
 export interface JournalProfile {
   id: string;
   name: string;
@@ -20,6 +28,10 @@ export interface JournalProfile {
     summary: string;
     /** e.g. "et al. after 2 authors" */
     etAlRule: string;
+    /** Formatter family (Vancouver-numbered / APA author-date / Nature-numbered). */
+    citationStyleId: CitationStyleId;
+    /** Number of authors listed in a reference-list entry before switching to "et al." */
+    etAlMax: number;
   };
   wordLimits: {
     abstract: number | null;
@@ -51,6 +63,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "No specific house style enforced; follow a consistent, recognized citation format.",
       etAlRule: "Use journal-agnostic judgment (commonly et al. after 2-3 authors).",
+      citationStyleId: "vancouver",
+      etAlMax: 3,
     },
     wordLimits: { abstract: null, mainText: null, figureCaption: null },
   },
@@ -77,6 +91,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "Numbered, superscript citation style; reference list in citation order, not alphabetical.",
       etAlRule: "List all authors up to 5; use et al. beyond 5 authors.",
+      citationStyleId: "nature",
+      etAlMax: 5,
     },
     wordLimits: { abstract: 150, mainText: 3000, figureCaption: 350 },
   },
@@ -102,6 +118,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "Numbered citation style in order of appearance; compact reference formatting.",
       etAlRule: "List up to 5 authors; et al. beyond 5.",
+      citationStyleId: "vancouver",
+      etAlMax: 5,
     },
     wordLimits: { abstract: 125, mainText: 2500, figureCaption: 300 },
   },
@@ -127,6 +145,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "Numbered citations; PNAS reference style with abbreviated journal names.",
       etAlRule: "List up to 5 authors; et al. beyond 5.",
+      citationStyleId: "vancouver",
+      etAlMax: 5,
     },
     wordLimits: { abstract: 250, mainText: 6000, figureCaption: 350 },
   },
@@ -153,6 +173,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "Vancouver numbered style; reference list in citation order.",
       etAlRule: "List all authors when feasible; et al. permitted for very large author lists.",
+      citationStyleId: "vancouver",
+      etAlMax: 10,
     },
     wordLimits: { abstract: 300, mainText: null, figureCaption: null },
   },
@@ -178,6 +200,8 @@ export const journalProfiles: JournalProfile[] = [
     referenceStyle: {
       summary: "Author-year (Harvard) style in text; alphabetical reference list.",
       etAlRule: "Use et al. after 2 authors in-text; list all authors in the reference list.",
+      citationStyleId: "apa",
+      etAlMax: 2,
     },
     wordLimits: { abstract: 250, mainText: null, figureCaption: null },
   },

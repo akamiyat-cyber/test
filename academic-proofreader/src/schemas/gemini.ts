@@ -94,3 +94,36 @@ export const paraphraseResponseSchema: Schema = {
     wordCount: { type: Type.INTEGER, description: "Word count of `result`." },
   },
 };
+
+/** Matches the JSON body of ReferenceCheckResponse in src/types/api.ts. */
+export const referenceCheckResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["uncitedReferences", "unmatchedCitations"],
+  properties: {
+    uncitedReferences: {
+      type: Type.ARRAY,
+      description: "References from the supplied library that are never cited anywhere in the text.",
+      items: {
+        type: Type.OBJECT,
+        required: ["id", "title"],
+        properties: {
+          id: { type: Type.STRING, description: "The reference's id, copied verbatim from the input list." },
+          title: { type: Type.STRING },
+        },
+      },
+    },
+    unmatchedCitations: {
+      type: Type.ARRAY,
+      description:
+        "In-text citation-like markers (e.g. \"(Smith, 2020)\", \"[3]\", \"Smith et al.\") found in the text that do not correspond to any reference in the supplied library.",
+      items: {
+        type: Type.OBJECT,
+        required: ["citationText", "context"],
+        properties: {
+          citationText: { type: Type.STRING, description: "The citation marker as it appears in the text." },
+          context: { type: Type.STRING, description: "A short surrounding snippet (~10-15 words) for locating it." },
+        },
+      },
+    },
+  },
+};

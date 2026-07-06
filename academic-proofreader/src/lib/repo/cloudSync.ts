@@ -12,8 +12,10 @@
 //   merged by term text.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DocumentRow, DocumentVersionRow, WhitelistTermRow } from "@/types/db";
-import type { DraftState, SettingsState, VersionSnapshot, WhitelistTerm } from "@/lib/types";
+import type { DocumentRow, DocumentVersionRow, ReferenceRow, WhitelistTermRow } from "@/types/db";
+import type { DraftState, LibraryReference, ReferenceSource, SettingsState, VersionSnapshot, WhitelistTerm } from "@/lib/types";
+import type { CslItem } from "@/lib/references/csl";
+import { cslAuthorsText, cslYear } from "@/lib/references/csl";
 
 export interface CloudDocument {
   id: string;
@@ -192,4 +194,47 @@ export async function removeCloudWhitelistTerm(
     .eq("user_id", userId)
     .eq("term", term);
   if (error) throw new Error(`whitelist remove failed: ${error.message}`);
+}
+
+function rowToLibraryReference(row: ReferenceRow): LibraryReference {
+  return { id: row.id, csl: row.csl as unknown as CslItem, source: row.source };
+}
+
+export async function fetchCloudReferences(supabase: SupabaseClient, userId: string): Promise<LibraryReference[]> {
+  const { data, error } = await supabase
+    .from("references")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`references fetch failed: ${error.message}`);
+  return ((data as ReferenceRow[]) ?? []).map(rowToLibraryReference);
+}
+
+/** Inserts one reference and returns the DB-assigned row (its `id` replaces any client-side temp id). */
+export async function addCloudReference(
+  supabase: SupabaseClient,
+  userId: string,
+  csl: CslItem,
+  source: ReferenceSource
+): Promise<LibraryReference> {
+  const { data, error } = await supabase
+    .from("references")
+    .insert({
+      user_id: userId,
+      csl,
+      doi: csl.DOI ?? null,
+      title: csl.title ?? null,
+      authors_text: cslAuthorsText(csl) || null,
+      year: cslYear(csl),
+      source,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`reference insert failed: ${error.message}`);
+  return rowToLibraryReference(data as ReferenceRow);
+}
+
+export async function removeCloudReference(supabase: SupabaseClient, id: string): Promise<void> {
+  const { error } = await supabase.from("references").delete().eq("id", id);
+  if (error) throw new Error(`reference remove failed: ${error.message}`);
 }

@@ -3,6 +3,7 @@
 // these shapes and return exactly these shapes (or { error: string }).
 
 import type { ProofreadMode, RawProofreadResult } from "@/lib/types";
+import type { CslItem } from "@/lib/references/csl";
 
 // ---- POST /api/proofread ----
 export interface ProofreadRequest {
@@ -72,6 +73,47 @@ export interface ParaphraseRequest {
 export interface ParaphraseResponse {
   result: string;
   wordCount: number;
+}
+
+// ---- POST /api/references/import ----
+export type ReferenceImportFormat = "bibtex" | "ris";
+export interface ReferenceImportRequest {
+  format: ReferenceImportFormat;
+  text: string;
+}
+export interface ReferenceImportResponse {
+  items: CslItem[];
+  errors: string[];
+}
+
+// ---- GET /api/references/search ----
+export type ReferenceSearchSource = "crossref" | "semantic-scholar" | "pubmed";
+export interface ReferenceSearchResultItem {
+  source: ReferenceSearchSource;
+  item: CslItem;
+}
+export interface ReferenceSearchResponse {
+  results: ReferenceSearchResultItem[];
+  /** Non-fatal per-source failures (e.g. one provider timed out). */
+  sourceErrors: { source: ReferenceSearchSource; message: string }[];
+}
+
+// ---- POST /api/references/check ----
+export interface ReferenceCheckRequest {
+  text: string;
+  references: { id: string; title: string; authorsText: string; year: number | null }[];
+}
+export interface UncitedReference {
+  id: string;
+  title: string;
+}
+export interface UnmatchedCitation {
+  citationText: string;
+  context: string;
+}
+export interface ReferenceCheckResponse {
+  uncitedReferences: UncitedReference[];
+  unmatchedCitations: UnmatchedCitation[];
 }
 
 export interface ApiError {

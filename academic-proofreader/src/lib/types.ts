@@ -1,5 +1,7 @@
 // Shared domain types for the academic English proofreader.
 
+import type { CslItem } from "@/lib/references/csl";
+
 export type CorrectionCategory =
   | "grammar"
   | "style"
@@ -100,4 +102,13 @@ export interface SettingsState {
   journalId: string;
   stylePresetId: string;
   reasonLanguage: ReasonLanguage;
+}
+
+export type ReferenceSource = "bibtex" | "ris" | "crossref" | "semantic-scholar" | "pubmed" | "manual";
+
+/** A reference library entry: `id` is a local/DB row id, distinct from `csl.id` (the citation key). */
+export interface LibraryReference {
+  id: string;
+  csl: CslItem;
+  source: ReferenceSource;
 }

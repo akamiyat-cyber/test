@@ -12,25 +12,35 @@ import {
 import type { ReactNode, RefObject } from "react";
 import { useAuth } from "@/context/AuthContext";
 import {
+  addCloudReference,
   addCloudWhitelistTerm,
   appendCloudVersion,
   createDocumentFromLocal,
+  fetchCloudReferences,
   fetchCloudVersions,
   fetchLatestDocument,
+  removeCloudReference,
   removeCloudWhitelistTerm,
   saveDocument,
   syncWhitelist,
 } from "@/lib/repo/cloudSync";
 import { getWhitelistPreset } from "@/lib/whitelistPresets";
 import { generateId } from "@/lib/id";
+import { getJournalProfile } from "@/lib/journalProfiles";
+import { dedupeKey, type CslItem } from "@/lib/references/csl";
+import { formatInTextCitation, orderReferencesForBibliography, formatReferenceEntry } from "@/lib/references/formatters";
 import {
+  loadCitationOrder,
   loadComments,
   loadDraft,
+  loadReferences,
   loadSettings,
   loadVersions,
   loadWhitelist,
+  saveCitationOrder,
   saveComments,
   saveDraft,
+  saveReferences,
   saveSettings,
   saveVersions,
   saveWhitelist,
@@ -39,15 +49,18 @@ import type {
   CommentItem,
   Correction,
   CorrectionStatus,
+  LibraryReference,
   ProofreadMode,
   ProofreadResult,
   RawProofreadResult,
   ReasonLanguage,
+  ReferenceSource,
   VersionSnapshot,
   WhitelistTerm,
 } from "@/lib/types";
+import type { ReferenceCheckResponse } from "@/types/api";
 
-export type TabId = "draft" | "body" | "caption" | "reviewer";
+export type TabId = "draft" | "body" | "caption" | "references" | "reviewer";
 
 export type CloudSyncState = "off" | "syncing" | "synced" | "error";
 
@@ -138,6 +151,20 @@ interface AppContextValue {
   comments: CommentItem[];
   addComment: (input: { targetType: "correction" | "global"; targetId?: string; targetLabel?: string; text: string }) => void;
   removeComment: (id: string) => void;
+
+  // references (Phase 2)
+  references: LibraryReference[];
+  /** Adds references (deduped by DOI/title+year). Returns one LibraryReference per input item — the new entry, or the pre-existing match. */
+  addReferences: (items: { csl: CslItem; source: ReferenceSource }[]) => LibraryReference[];
+  removeReference: (id: string) => void;
+  citationOrder: string[];
+  /** Builds the in-text marker for the current journal's citation style, records citation order, and inserts it at the cursor. */
+  citeReference: (ref: LibraryReference) => void;
+  bibliography: { reference: LibraryReference; entry: string }[];
+  runReferenceCheck: () => Promise<void>;
+  referenceCheckResult: ReferenceCheckResponse | null;
+  loadingReferenceCheck: boolean;
+  errorReferenceCheck: string | null;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -187,6 +214,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [versions, setVersions] = useState<VersionSnapshot[]>(() => loadVersions());
   const [comments, setComments] = useState<CommentItem[]>(() => loadComments());
 
+  const [references, setReferences] = useState<LibraryReference[]>(() => loadReferences());
+  const [citationOrder, setCitationOrder] = useState<string[]>(() => loadCitationOrder());
+  const [referenceCheckResult, setReferenceCheckResult] = useState<ReferenceCheckResponse | null>(null);
+  const [loadingReferenceCheck, setLoadingReferenceCheck] = useState(false);
+  const [errorReferenceCheck, setErrorReferenceCheck] = useState<string | null>(null);
+
   // Debounced autosave of the draft text fields (writes to localStorage; does
   // not call any React state setter, so it's a plain external-system effect).
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,6 +245,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveComments(comments);
   }, [comments]);
 
+  useEffect(() => {
+    saveReferences(references);
+  }, [references]);
+
+  useEffect(() => {
+    saveCitationOrder(citationOrder);
+  }, [citationOrder]);
+
   // ---- Cloud sync (Phase 0) -------------------------------------------------
   // localStorage stays the offline cache / source for anonymous use; when a
   // user signs in we run an initial sync (cloud wins if a document exists,
@@ -235,6 +276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const localDraft = loadDraft();
       const localSettings = loadSettings();
       const localWhitelist = loadWhitelist();
+      const localReferences = loadReferences();
 
       let doc = await fetchLatestDocument(supabase, userId);
       if (!doc) {
@@ -260,6 +302,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setVersions(cloudVersions);
         saveVersions(cloudVersions);
       }
+
+      // References: cloud wins for anything already synced; any local-only
+      // reference (never signed in before, or added while offline) is pushed
+      // up once, then adopted with its DB-assigned id.
+      const cloudReferences = await fetchCloudReferences(supabase, userId);
+      if (cancelled) return;
+      const cloudKeys = new Set(cloudReferences.map((r) => dedupeKey(r.csl)));
+      const localOnly = localReferences.filter((r) => !cloudKeys.has(dedupeKey(r.csl)));
+      const pushed = await Promise.all(
+        localOnly.map((r) => addCloudReference(supabase, userId, r.csl, r.source).catch(() => null))
+      );
+      if (cancelled) return;
+      setReferences([...cloudReferences, ...pushed.filter((r): r is LibraryReference => !!r)]);
+
       setCloudSyncState("synced");
       setCloudSyncError(null);
     }
@@ -554,6 +610,123 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setComments((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
+  /** Adds new references, skipping ones already in the library (by DOI, else normalized title+year). Returns how many were actually added. */
+  const addReferences = useCallback(
+    (items: { csl: CslItem; source: ReferenceSource }[]) => {
+      // Compute against the current `references` directly rather than inside
+      // the setState updater: addCloudReference is a side effect (network
+      // call), and updater functions must stay pure or React's dev-mode
+      // double-invocation check will fire it twice.
+      const existingByKey = new Map(references.map((r) => [dedupeKey(r.csl), r]));
+      const result: LibraryReference[] = [];
+      const toAdd: LibraryReference[] = [];
+      for (const { csl, source } of items) {
+        const key = dedupeKey(csl);
+        const existing = existingByKey.get(key);
+        if (existing) {
+          result.push(existing);
+          continue;
+        }
+        const created: LibraryReference = { id: generateId("ref"), csl, source };
+        existingByKey.set(key, created);
+        toAdd.push(created);
+        result.push(created);
+      }
+
+      if (toAdd.length > 0) {
+        setReferences((prev) => [...prev, ...toAdd]);
+        if (supabase && userId) {
+          toAdd.forEach((r) => {
+            addCloudReference(supabase, userId, r.csl, r.source)
+              .then((cloudRow) => {
+                setReferences((cur) => cur.map((c) => (c.id === r.id ? cloudRow : c)));
+                setCitationOrder((cur) => cur.map((id) => (id === r.id ? cloudRow.id : id)));
+              })
+              .catch(() => {});
+          });
+        }
+      }
+      return result;
+    },
+    [references, supabase, userId]
+  );
+
+  const removeReference = useCallback(
+    (id: string) => {
+      setReferences((prev) => prev.filter((r) => r.id !== id));
+      setCitationOrder((prev) => prev.filter((refId) => refId !== id));
+      if (supabase && userId) {
+        removeCloudReference(supabase, id).catch(() => {});
+      }
+    },
+    [supabase, userId]
+  );
+
+  const citeReference = useCallback(
+    (ref: LibraryReference) => {
+      // Compute against the current value directly (not inside the setState
+      // updater) since insertIntoMainText is a side effect — updater functions
+      // must stay pure or React's dev-mode double-invocation check will run
+      // the side effect twice.
+      const existingIndex = citationOrder.indexOf(ref.id);
+      const number = existingIndex === -1 ? citationOrder.length + 1 : existingIndex + 1;
+      if (existingIndex === -1) {
+        setCitationOrder((prev) => (prev.includes(ref.id) ? prev : [...prev, ref.id]));
+      }
+      const journal = getJournalProfile(journalId);
+      const { citationStyleId, etAlMax } = journal.referenceStyle;
+      insertIntoMainText(formatInTextCitation(ref.csl, citationStyleId, etAlMax, number));
+    },
+    [journalId, citationOrder, insertIntoMainText]
+  );
+
+  const bibliography = useMemo(() => {
+    const journal = getJournalProfile(journalId);
+    const { citationStyleId, etAlMax } = journal.referenceStyle;
+    const ordered = orderReferencesForBibliography(
+      references.map((r) => ({ id: r.id, item: r.csl })),
+      citationStyleId,
+      citationOrder
+    );
+    const byId = new Map(references.map((r) => [r.id, r]));
+    return ordered
+      .map((o, i) => {
+        const reference = byId.get(o.id);
+        if (!reference) return null;
+        const number = citationStyleId === "apa" ? undefined : i + 1;
+        return { reference, entry: formatReferenceEntry(o.item, citationStyleId, etAlMax, number) };
+      })
+      .filter((x): x is { reference: LibraryReference; entry: string } => !!x);
+  }, [references, citationOrder, journalId]);
+
+  const runReferenceCheck = useCallback(async () => {
+    if (!mainText.trim()) return;
+    setLoadingReferenceCheck(true);
+    setErrorReferenceCheck(null);
+    try {
+      const res = await fetch("/api/references/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: mainText,
+          references: references.map((r) => ({
+            id: r.id,
+            title: r.csl.title ?? "",
+            authorsText: (r.csl.author ?? []).map((a) => a.literal || [a.given, a.family].filter(Boolean).join(" ")).join(", "),
+            year: r.csl.issued?.["date-parts"]?.[0]?.[0] ?? null,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reference check failed.");
+      setReferenceCheckResult(data as ReferenceCheckResponse);
+    } catch (err) {
+      setErrorReferenceCheck(err instanceof Error ? err.message : "Unknown error.");
+    } finally {
+      setLoadingReferenceCheck(false);
+    }
+  }, [mainText, references]);
+
   const value = useMemo<AppContextValue>(
     () => ({
       journalId,
@@ -603,6 +776,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       comments,
       addComment,
       removeComment,
+      references,
+      addReferences,
+      removeReference,
+      citationOrder,
+      citeReference,
+      bibliography,
+      runReferenceCheck,
+      referenceCheckResult,
+      loadingReferenceCheck,
+      errorReferenceCheck,
     }),
     [
       journalId,
@@ -645,6 +828,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       comments,
       addComment,
       removeComment,
+      references,
+      addReferences,
+      removeReference,
+      citationOrder,
+      citeReference,
+      bibliography,
+      runReferenceCheck,
+      referenceCheckResult,
+      loadingReferenceCheck,
+      errorReferenceCheck,
     ]
   );
 

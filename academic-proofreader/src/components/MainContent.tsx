@@ -6,12 +6,14 @@ import type { TabId } from "@/context/AppContext";
 import { CoverLetterModal } from "@/components/coverletter/CoverLetterModal";
 import { DraftingTab } from "@/components/drafting/DraftingTab";
 import { ProofreadPane } from "@/components/proofread/ProofreadPane";
+import { ReferencesTab } from "@/components/references/ReferencesTab";
 import { ReviewerResponseTab } from "@/components/reviewer/ReviewerResponseTab";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "draft", label: "執筆支援" },
   { id: "body", label: "本文校正" },
   { id: "caption", label: "図表キャプション" },
+  { id: "references", label: "文献・引用" },
   { id: "reviewer", label: "査読対応" },
 ];
 
@@ -81,6 +83,7 @@ export function MainContent() {
             placeholder="Figure/Table のキャプションをここに貼り付けてください..."
           />
         )}
+        {activeTab === "references" && <ReferencesTab />}
         {activeTab === "reviewer" && <ReviewerResponseTab />}
       </div>
 
