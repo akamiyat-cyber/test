@@ -60,7 +60,7 @@ import type {
 } from "@/lib/types";
 import type { ReferenceCheckResponse } from "@/types/api";
 
-export type TabId = "draft" | "body" | "caption" | "references" | "reviewer";
+export type TabId = "draft" | "body" | "caption" | "references" | "quality" | "reviewer";
 
 export type CloudSyncState = "off" | "syncing" | "synced" | "error";
 

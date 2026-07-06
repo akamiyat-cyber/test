@@ -16,10 +16,11 @@ Without Supabase env vars the app runs in **local mode** (localStorage only), ex
 
 ## Features
 
-- Tabs: 執筆支援 (drafting), 本文校正 (body proofreading), 図表キャプション (figure/table captions), 文献・引用 (references & citations), 査読対応 (response to reviewers).
+- Tabs: 執筆支援 (drafting), 本文校正 (body proofreading), 図表キャプション (figure/table captions), 文献・引用 (references & citations), 品質・投稿準備 (quality & submission prep), 査読対応 (response to reviewers).
 - **Proofreading**: track-changes style diff (strikethrough deletions, underlined+colored additions) with per-correction Accept/Reject, Accept All / Reject All, click-to-view reasons (English/Japanese toggle), a word-count tracker vs. the journal's limit, and a consistency checker for undefined abbreviations/inconsistent terminology (e.g. "AWD" vs. "alternate wetting and drying").
 - **Drafting**: research-notes → editable IMRaD outline generator; section-by-section draft assistant (pick a section + rhetorical "move"); a static Academic Phrasebank (contrast/claim/limitation/implication/background/summary); conservative paraphrase or word-count compression of a selection — all insert directly into the body editor at the cursor.
 - **References & citations**: import BibTeX/RIS (hand-written parsers, normalized to CSL-JSON), search Crossref/Semantic Scholar/PubMed and add/cite results, an AI citation checker (uncited references, in-text citations with no matching reference), and a formatted bibliography (Vancouver/APA/Nature) that auto-updates as you cite — see `docs/ARCHITECTURE.md`'s Phase 2 notes for how the formatter is scoped.
+- **Quality & submission prep**: interactive reporting-guideline checklists (PRISMA/ARRIVE/MIQE/CONSORT/STROBE) where you can accept or override the AI's per-item verdict; a statistical-reporting consistency check (p-values, CIs, effect sizes, significant figures); Data Availability/Ethics/COI/Funding statement generation from a short form; title/abstract/keyword optimization suggestions; and companion-document drafts (Plain Language Summary, Highlights, graphical-abstract caption, suggested-reviewers).
 - Journal-specific style/format/citation profiles (`src/lib/journalProfiles.ts`) for Nature, Science, PNAS, PLOS ONE, Bioinformatics, and a General fallback — add a journal by appending an entry to that file.
 - Domain whitelist for terms that should never be rewritten (with field presets: agronomy, genetics, bioinformatics, clinical medicine).
 - Cover letter draft generator and Response-to-Reviewers draft generator (Gemini, server-side).

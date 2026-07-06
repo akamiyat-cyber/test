@@ -116,6 +116,77 @@ export interface ReferenceCheckResponse {
   unmatchedCitations: UnmatchedCitation[];
 }
 
+// ---- POST /api/quality/checklist ----
+export interface QualityChecklistRequest {
+  guidelineId: string;
+  text: string;
+}
+export type ChecklistItemStatus = "satisfied" | "partial" | "missing";
+export interface ChecklistItemResult {
+  itemId: string;
+  status: ChecklistItemStatus;
+  evidence: string;
+  suggestion: string;
+}
+export interface QualityChecklistResponse {
+  items: ChecklistItemResult[];
+}
+
+// ---- POST /api/quality/stats ----
+export interface StatsCheckRequest {
+  text: string;
+}
+export interface StatsIssue {
+  excerpt: string;
+  issue: string;
+  suggestion: string;
+}
+export interface StatsCheckResponse {
+  issues: StatsIssue[];
+}
+
+// ---- POST /api/quality/statements ----
+export type StatementType = "data-availability" | "ethics" | "coi" | "funding";
+export interface StatementRequest {
+  statementType: StatementType;
+  formData: Record<string, string>;
+  journalId: string;
+}
+export interface StatementResponse {
+  statement: string;
+}
+
+// ---- POST /api/quality/title-abstract ----
+export interface TitleAbstractRequest {
+  title: string;
+  abstract: string;
+  journalId: string;
+}
+export interface TitleSuggestion {
+  title: string;
+  reason: string;
+}
+export interface TitleAbstractResponse {
+  titleSuggestions: TitleSuggestion[];
+  keywordSuggestions: string[];
+  abstractFeedback: string;
+}
+
+// ---- POST /api/quality/companion-docs ----
+export type CompanionDocType =
+  | "plain-language-summary"
+  | "highlights"
+  | "graphical-abstract-caption"
+  | "suggested-reviewers";
+export interface CompanionDocRequest {
+  docType: CompanionDocType;
+  text: string;
+  journalId: string;
+}
+export interface CompanionDocResponse {
+  result: string;
+}
+
 export interface ApiError {
   error: string;
 }

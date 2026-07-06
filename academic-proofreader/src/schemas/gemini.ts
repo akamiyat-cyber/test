@@ -95,6 +95,82 @@ export const paraphraseResponseSchema: Schema = {
   },
 };
 
+/** Matches QualityChecklistResponse in src/types/api.ts. */
+export const qualityChecklistResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["items"],
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["itemId", "status", "evidence", "suggestion"],
+        properties: {
+          itemId: { type: Type.STRING, description: "Copied verbatim from the input checklist item id." },
+          status: { type: Type.STRING, enum: ["satisfied", "partial", "missing"] },
+          evidence: {
+            type: Type.STRING,
+            description: "Short quote/paraphrase from the text supporting this status, or empty string if missing.",
+          },
+          suggestion: {
+            type: Type.STRING,
+            description: "What to add or fix to fully satisfy this item.",
+          },
+        },
+      },
+    },
+  },
+};
+
+/** Matches StatsCheckResponse in src/types/api.ts. */
+export const statsCheckResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["issues"],
+  properties: {
+    issues: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["excerpt", "issue", "suggestion"],
+        properties: {
+          excerpt: { type: Type.STRING, description: "The exact statistical statement from the text." },
+          issue: { type: Type.STRING, description: "What is inconsistent/wrong (formatting, missing CI, etc.)." },
+          suggestion: { type: Type.STRING, description: "How to fix it." },
+        },
+      },
+    },
+  },
+};
+
+/** Matches TitleAbstractResponse in src/types/api.ts. */
+export const titleAbstractResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["titleSuggestions", "keywordSuggestions", "abstractFeedback"],
+  properties: {
+    titleSuggestions: {
+      type: Type.ARRAY,
+      description: "3-5 alternative titles, each more discoverable/precise than the original.",
+      items: {
+        type: Type.OBJECT,
+        required: ["title", "reason"],
+        properties: {
+          title: { type: Type.STRING },
+          reason: { type: Type.STRING, description: "Why this alternative improves discoverability/clarity." },
+        },
+      },
+    },
+    keywordSuggestions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "5-8 suggested keywords for indexing/searchability.",
+    },
+    abstractFeedback: {
+      type: Type.STRING,
+      description: "Brief feedback on the abstract's clarity/completeness/searchability (plain text, a few sentences).",
+    },
+  },
+};
+
 /** Matches the JSON body of ReferenceCheckResponse in src/types/api.ts. */
 export const referenceCheckResponseSchema: Schema = {
   type: Type.OBJECT,
