@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ANTHROPIC_MODEL, extractJSON, getAnthropicClient, getTextFromMessage } from "@/lib/anthropic";
+import { generateStructured } from "@/lib/ai/gemini";
+import { checkRateLimit, rateLimitResponseBody } from "@/lib/rateLimit";
+import { resolveUser } from "@/lib/serverAuth";
+import { recordUsage } from "@/lib/usage";
 import { getJournalProfile } from "@/lib/journalProfiles";
 import { getStylePreset } from "@/lib/stylePresets";
 import { buildProofreadPrompt } from "@/lib/prompt";
-import type { ProofreadMode, RawProofreadResult } from "@/lib/types";
+import { proofreadResponseSchema } from "@/schemas/gemini";
+import type { ProofreadRequest, ProofreadResponse } from "@/types/api";
+import type { RawProofreadResult } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-interface ProofreadRequestBody {
-  text: string;
-  mode: ProofreadMode;
-  journalId: string;
-  stylePresetId: string;
-  whitelist: string[];
-}
 
 function isValidRawResult(value: unknown): value is RawProofreadResult {
   if (!value || typeof value !== "object") return false;
@@ -28,7 +25,13 @@ function isValidRawResult(value: unknown): value is RawProofreadResult {
 }
 
 export async function POST(req: NextRequest) {
-  let body: ProofreadRequestBody;
+  const { userId } = await resolveUser(req);
+  const limit = checkRateLimit(req, "ai", userId);
+  if (!limit.allowed) {
+    return NextResponse.json(rateLimitResponseBody(limit), { status: 429 });
+  }
+
+  let body: ProofreadRequest;
   try {
     body = await req.json();
   } catch {
@@ -51,26 +54,17 @@ export async function POST(req: NextRequest) {
   });
 
   try {
-    const client = getAnthropicClient();
-    const message = await client.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 8192,
+    const { data, usage } = await generateStructured<RawProofreadResult>({
+      systemInstruction: system,
+      prompt: user,
       temperature: 0.2,
-      system,
-      messages: [{ role: "user", content: user }],
+      responseSchema: proofreadResponseSchema,
+      validate: isValidRawResult,
     });
-
-    const raw = extractJSON(getTextFromMessage(message));
-    if (!isValidRawResult(raw)) {
-      return NextResponse.json(
-        { error: "Model response did not match the expected schema." },
-        { status: 502 }
-      );
-    }
-
-    return NextResponse.json(raw satisfies RawProofreadResult);
+    await recordUsage({ userId, route: "/api/proofread", usage });
+    return NextResponse.json(data satisfies ProofreadResponse);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error calling Claude API.";
+    const message = err instanceof Error ? err.message : "Unknown error calling Gemini API.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

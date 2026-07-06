@@ -1,16 +1,18 @@
 # Academic English Proofreader
 
-Academic English proofreading web app (Paperpal-style) built with Next.js (App Router), TypeScript, Tailwind CSS, and the Anthropic API (Claude). All processing state is stored in the browser's `localStorage` — there is no backend database.
+Academic English proofreading web app (Paperpal-style) being extended into a full scientific paper authoring environment. Built with Next.js (App Router), TypeScript, Tailwind CSS, the Google Gemini API (`@google/genai`), and Supabase (Auth + PostgreSQL). See `docs/ARCHITECTURE.md` for the full design and phase plan.
 
 ## Getting started
 
 ```bash
-cp .env.example .env.local   # add your ANTHROPIC_API_KEY
+cp .env.example .env.local   # add your GEMINI_API_KEY (and optionally Supabase)
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+Without Supabase env vars the app runs in **local mode** (localStorage only), exactly like before. To enable cloud persistence: create a Supabase project, run `supabase/migrations/0001_init.sql` against it (SQL editor or `supabase db push`), and set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Sign-in then migrates the local draft to the cloud and keeps them in sync (`SUPABASE_SERVICE_ROLE_KEY` additionally enables usage metering).
 
 ## Features
 
@@ -26,9 +28,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Architecture
 
-- `src/lib/` — domain types, journal/style/whitelist data, prompt building, localStorage persistence, diff helpers.
-- `src/app/api/*/route.ts` — server-side Route Handlers that call the Anthropic API; the API key never reaches the browser.
-- `src/context/AppContext.tsx` — the single client-side state container (settings, drafts, results, whitelist, versions, comments) with `localStorage` sync.
-- `src/components/` — UI, grouped by feature area (`proofread/`, `sidebar/`, `history/`, `comments/`, `coverletter/`, `reviewer/`).
+See `docs/ARCHITECTURE.md` for the full picture (directory layout, DB schema, API route list, data flow, phase plan). Highlights:
+
+- `src/config/` — model IDs, env access, rate-limit/plan quotas.
+- `src/types/` + `src/schemas/` — API contracts and Gemini `responseSchema` definitions, fixed before implementation.
+- `src/lib/ai/gemini.ts` — server-only Gemini wrapper (structured output via `responseMimeType` + `responseSchema`).
+- `src/app/api/*/route.ts` — Route Handlers with rate limiting (`lib/rateLimit.ts`), optional Bearer auth (`lib/serverAuth.ts`), and usage metering (`lib/usage.ts`).
+- `src/context/AuthContext.tsx` + `src/lib/repo/cloudSync.ts` — Supabase auth and DB⇔localStorage sync; `supabase/migrations/` holds the schema.
+- `src/components/` — UI grouped by feature area.
 
 The app is mounted via `next/dynamic({ ssr: false })` in `src/app/page.tsx` since all state is seeded from `localStorage`, which only exists in the browser.

@@ -10,6 +10,17 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { useAuth } from "@/context/AuthContext";
+import {
+  addCloudWhitelistTerm,
+  appendCloudVersion,
+  createDocumentFromLocal,
+  fetchCloudVersions,
+  fetchLatestDocument,
+  removeCloudWhitelistTerm,
+  saveDocument,
+  syncWhitelist,
+} from "@/lib/repo/cloudSync";
 import { getWhitelistPreset } from "@/lib/whitelistPresets";
 import { generateId } from "@/lib/id";
 import {
@@ -37,6 +48,8 @@ import type {
 } from "@/lib/types";
 
 export type TabId = "body" | "caption" | "reviewer";
+
+export type CloudSyncState = "off" | "syncing" | "synced" | "error";
 
 function toProofreadResult(raw: RawProofreadResult): ProofreadResult {
   return {
@@ -106,6 +119,10 @@ interface AppContextValue {
   errorCoverLetter: string | null;
   generateCoverLetter: (title: string, authorNotes: string) => Promise<void>;
 
+  // cloud sync (Phase 0)
+  cloudSyncState: CloudSyncState;
+  cloudSyncError: string | null;
+
   // version history
   versions: VersionSnapshot[];
 
@@ -123,6 +140,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 // mismatch against, and it avoids the "setState in effect" anti-pattern for
 // what is really just synchronous initialization from an external store.
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { supabase, userId, accessToken } = useAuth();
+
   const [journalId, setJournalId] = useState(() => loadSettings().journalId);
   const [stylePresetId, setStylePresetId] = useState(() => loadSettings().stylePresetId);
   const [reasonLanguage, setReasonLanguage] = useState<ReasonLanguage>(() => loadSettings().reasonLanguage);
@@ -178,30 +197,140 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveComments(comments);
   }, [comments]);
 
-  const addWhitelistTerm = useCallback((term: string) => {
-    const trimmed = term.trim();
-    if (!trimmed) return;
-    setWhitelist((prev) => {
-      if (prev.some((t) => t.term.toLowerCase() === trimmed.toLowerCase())) return prev;
-      return [...prev, { id: generateId("wl"), term: trimmed }];
-    });
-  }, []);
+  // ---- Cloud sync (Phase 0) -------------------------------------------------
+  // localStorage stays the offline cache / source for anonymous use; when a
+  // user signs in we run an initial sync (cloud wins if a document exists,
+  // otherwise the local draft is migrated up), then mirror subsequent changes.
+  const [cloudDocumentId, setCloudDocumentId] = useState<string | null>(null);
+  const [cloudSyncState, setCloudSyncState] = useState<CloudSyncState>("off");
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
 
-  const removeWhitelistTerm = useCallback((id: string) => {
-    setWhitelist((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!supabase || !userId) {
+        setCloudDocumentId(null);
+        setCloudSyncState("off");
+        setCloudSyncError(null);
+        return;
+      }
+      setCloudSyncState("syncing");
+      // Read the freshest local data from storage (kept current by the
+      // debounced autosave effects) so login migrates what the user sees.
+      const localDraft = loadDraft();
+      const localSettings = loadSettings();
+      const localWhitelist = loadWhitelist();
 
-  const applyWhitelistPreset = useCallback((presetId: string) => {
-    const preset = getWhitelistPreset(presetId);
-    if (!preset) return;
-    setWhitelist((prev) => {
-      const existing = new Set(prev.map((t) => t.term.toLowerCase()));
-      const additions = preset.terms
-        .filter((term) => !existing.has(term.toLowerCase()))
-        .map((term) => ({ id: generateId("wl"), term, presetId: preset.id }));
-      return [...prev, ...additions];
+      let doc = await fetchLatestDocument(supabase, userId);
+      if (!doc) {
+        doc = await createDocumentFromLocal(supabase, userId, localDraft, localSettings);
+      } else {
+        // Cloud copy wins: replace local editing state.
+        setMainText(doc.draft.mainText);
+        setCaptionText(doc.draft.captionText);
+        setReviewerCommentsText(doc.draft.reviewerCommentsText);
+        setJournalId(doc.settings.journalId);
+        setStylePresetId(doc.settings.stylePresetId);
+      }
+      if (cancelled) return;
+      setCloudDocumentId(doc.id);
+
+      const [cloudTerms, cloudVersions] = await Promise.all([
+        syncWhitelist(supabase, userId, localWhitelist),
+        fetchCloudVersions(supabase, doc.id),
+      ]);
+      if (cancelled) return;
+      setWhitelist(cloudTerms);
+      if (cloudVersions.length > 0) {
+        setVersions(cloudVersions);
+        saveVersions(cloudVersions);
+      }
+      setCloudSyncState("synced");
+      setCloudSyncError(null);
+    }
+    run().catch((err) => {
+      if (!cancelled) {
+        setCloudSyncState("error");
+        setCloudSyncError(err instanceof Error ? err.message : String(err));
+      }
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId]);
+
+  // Debounced mirror of draft + settings to the cloud document.
+  const cloudSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!supabase || !userId || !cloudDocumentId) return;
+    if (cloudSaveTimer.current) clearTimeout(cloudSaveTimer.current);
+    cloudSaveTimer.current = setTimeout(() => {
+      saveDocument(
+        supabase,
+        cloudDocumentId,
+        { mainText, captionText, reviewerCommentsText, updatedAt: Date.now() },
+        { journalId, stylePresetId, reasonLanguage }
+      )
+        .then(() => {
+          setCloudSyncState("synced");
+          setCloudSyncError(null);
+        })
+        .catch((err) => {
+          setCloudSyncState("error");
+          setCloudSyncError(err instanceof Error ? err.message : String(err));
+        });
+    }, 1500);
+    return () => {
+      if (cloudSaveTimer.current) clearTimeout(cloudSaveTimer.current);
+    };
+  }, [supabase, userId, cloudDocumentId, mainText, captionText, reviewerCommentsText, journalId, stylePresetId, reasonLanguage]);
+  // ---------------------------------------------------------------------------
+
+  const addWhitelistTerm = useCallback(
+    (term: string) => {
+      const trimmed = term.trim();
+      if (!trimmed) return;
+      setWhitelist((prev) => {
+        if (prev.some((t) => t.term.toLowerCase() === trimmed.toLowerCase())) return prev;
+        return [...prev, { id: generateId("wl"), term: trimmed }];
+      });
+      if (supabase && userId) {
+        addCloudWhitelistTerm(supabase, userId, trimmed).catch(() => {});
+      }
+    },
+    [supabase, userId]
+  );
+
+  const removeWhitelistTerm = useCallback(
+    (id: string) => {
+      const target = whitelist.find((t) => t.id === id);
+      setWhitelist((prev) => prev.filter((t) => t.id !== id));
+      if (supabase && userId && target) {
+        removeCloudWhitelistTerm(supabase, userId, target.term).catch(() => {});
+      }
+    },
+    [supabase, userId, whitelist]
+  );
+
+  const applyWhitelistPreset = useCallback(
+    (presetId: string) => {
+      const preset = getWhitelistPreset(presetId);
+      if (!preset) return;
+      setWhitelist((prev) => {
+        const existing = new Set(prev.map((t) => t.term.toLowerCase()));
+        const additions = preset.terms
+          .filter((term) => !existing.has(term.toLowerCase()))
+          .map((term) => ({ id: generateId("wl"), term, presetId: preset.id }));
+        return [...prev, ...additions];
+      });
+      if (supabase && userId) {
+        for (const term of preset.terms) {
+          addCloudWhitelistTerm(supabase, userId, term, preset.id).catch(() => {});
+        }
+      }
+    },
+    [supabase, userId]
+  );
 
   const runProofread = useCallback(
     async (mode: ProofreadMode) => {
@@ -217,7 +346,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/proofread", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
           body: JSON.stringify({
             text,
             mode,
@@ -250,13 +382,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           saveVersions(next);
           return next;
         });
+        if (supabase && userId && cloudDocumentId) {
+          appendCloudVersion(supabase, userId, cloudDocumentId, snapshot).catch(() => {});
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error.");
       } finally {
         setLoading(false);
       }
     },
-    [mainText, captionText, journalId, stylePresetId, whitelist]
+    [mainText, captionText, journalId, stylePresetId, whitelist, accessToken, supabase, userId, cloudDocumentId]
   );
 
   const setCorrectionStatus = useCallback(
@@ -296,7 +431,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/cover-letter", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
           body: JSON.stringify({ revisedText: text, journalId, title, authorNotes }),
         });
         const data = await res.json();
@@ -308,7 +446,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLoadingCoverLetter(false);
       }
     },
-    [mainResult, mainText, journalId]
+    [mainResult, mainText, journalId, accessToken]
   );
 
   const generateReviewerResponse = useCallback(async () => {
@@ -318,7 +456,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/reviewer-response", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({
           reviewerComments: reviewerCommentsText,
           revisedText: mainResult?.revisedFullText || mainText,
@@ -333,7 +474,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoadingReviewerResponse(false);
     }
-  }, [reviewerCommentsText, mainResult, mainText, journalId]);
+  }, [reviewerCommentsText, mainResult, mainText, journalId, accessToken]);
 
   const addComment = useCallback(
     (input: { targetType: "correction" | "global"; targetId?: string; targetLabel?: string; text: string }) => {
@@ -395,6 +536,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       loadingCoverLetter,
       errorCoverLetter,
       generateCoverLetter,
+      cloudSyncState,
+      cloudSyncError,
       versions,
       comments,
       addComment,
@@ -430,6 +573,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       loadingCoverLetter,
       errorCoverLetter,
       generateCoverLetter,
+      cloudSyncState,
+      cloudSyncError,
       versions,
       comments,
       addComment,

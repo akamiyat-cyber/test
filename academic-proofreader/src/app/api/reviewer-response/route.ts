@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ANTHROPIC_MODEL, getAnthropicClient, getTextFromMessage } from "@/lib/anthropic";
+import { generateText } from "@/lib/ai/gemini";
+import { checkRateLimit, rateLimitResponseBody } from "@/lib/rateLimit";
+import { resolveUser } from "@/lib/serverAuth";
+import { recordUsage } from "@/lib/usage";
 import { getJournalProfile } from "@/lib/journalProfiles";
 import { buildReviewerResponsePrompt } from "@/lib/prompt";
+import type { ReviewerResponseRequest, ReviewerResponseResponse } from "@/types/api";
 
 export const runtime = "nodejs";
 
-interface ReviewerResponseRequestBody {
-  reviewerComments: string;
-  revisedText: string;
-  journalId: string;
-}
-
 export async function POST(req: NextRequest) {
-  let body: ReviewerResponseRequestBody;
+  const { userId } = await resolveUser(req);
+  const limit = checkRateLimit(req, "ai", userId);
+  if (!limit.allowed) {
+    return NextResponse.json(rateLimitResponseBody(limit), { status: 429 });
+  }
+
+  let body: ReviewerResponseRequest;
   try {
     body = await req.json();
   } catch {
@@ -32,17 +36,16 @@ export async function POST(req: NextRequest) {
   });
 
   try {
-    const client = getAnthropicClient();
-    const message = await client.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 4096,
+    const { text, usage } = await generateText({
+      systemInstruction: system,
+      prompt: user,
       temperature: 0.4,
-      system,
-      messages: [{ role: "user", content: user }],
+      maxOutputTokens: 4096,
     });
-    return NextResponse.json({ response: getTextFromMessage(message).trim() });
+    await recordUsage({ userId, route: "/api/reviewer-response", usage });
+    return NextResponse.json({ response: text.trim() } satisfies ReviewerResponseResponse);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error calling Claude API.";
+    const message = err instanceof Error ? err.message : "Unknown error calling Gemini API.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

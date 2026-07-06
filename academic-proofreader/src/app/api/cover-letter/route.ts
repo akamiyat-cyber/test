@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ANTHROPIC_MODEL, getAnthropicClient, getTextFromMessage } from "@/lib/anthropic";
+import { generateText } from "@/lib/ai/gemini";
+import { checkRateLimit, rateLimitResponseBody } from "@/lib/rateLimit";
+import { resolveUser } from "@/lib/serverAuth";
+import { recordUsage } from "@/lib/usage";
 import { getJournalProfile } from "@/lib/journalProfiles";
 import { buildCoverLetterPrompt } from "@/lib/prompt";
+import type { CoverLetterRequest, CoverLetterResponse } from "@/types/api";
 
 export const runtime = "nodejs";
 
-interface CoverLetterRequestBody {
-  revisedText: string;
-  journalId: string;
-  title?: string;
-  authorNotes?: string;
-}
-
 export async function POST(req: NextRequest) {
-  let body: CoverLetterRequestBody;
+  const { userId } = await resolveUser(req);
+  const limit = checkRateLimit(req, "ai", userId);
+  if (!limit.allowed) {
+    return NextResponse.json(rateLimitResponseBody(limit), { status: 429 });
+  }
+
+  let body: CoverLetterRequest;
   try {
     body = await req.json();
   } catch {
@@ -29,17 +32,16 @@ export async function POST(req: NextRequest) {
   const { system, user } = buildCoverLetterPrompt({ revisedText, journal, title, authorNotes });
 
   try {
-    const client = getAnthropicClient();
-    const message = await client.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 2048,
+    const { text, usage } = await generateText({
+      systemInstruction: system,
+      prompt: user,
       temperature: 0.4,
-      system,
-      messages: [{ role: "user", content: user }],
+      maxOutputTokens: 2048,
     });
-    return NextResponse.json({ letter: getTextFromMessage(message).trim() });
+    await recordUsage({ userId, route: "/api/cover-letter", usage });
+    return NextResponse.json({ letter: text.trim() } satisfies CoverLetterResponse);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error calling Claude API.";
+    const message = err instanceof Error ? err.message : "Unknown error calling Gemini API.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

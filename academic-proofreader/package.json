@@ -9,12 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.109.0",
+    "@google/genai": "^2.10.0",
+    "@supabase/supabase-js": "^2.110.0",
     "docx": "^9.7.1",
     "file-saver": "^2.0.5",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

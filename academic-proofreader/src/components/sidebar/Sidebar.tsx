@@ -1,13 +1,23 @@
 "use client";
 
 import { useApp } from "@/context/AppContext";
+import { AuthPanel } from "@/components/auth/AuthPanel";
 import { getJournalProfile, journalProfiles } from "@/lib/journalProfiles";
 import { stylePresets } from "@/lib/stylePresets";
 import { JournalProfileInfo } from "./JournalProfileInfo";
 import { WhitelistPanel } from "./WhitelistPanel";
 
 export function Sidebar() {
-  const { journalId, setJournalId, stylePresetId, setStylePresetId, reasonLanguage, setReasonLanguage } = useApp();
+  const {
+    journalId,
+    setJournalId,
+    stylePresetId,
+    setStylePresetId,
+    reasonLanguage,
+    setReasonLanguage,
+    cloudSyncState,
+    cloudSyncError,
+  } = useApp();
   const journal = getJournalProfile(journalId);
 
   return (
@@ -16,6 +26,16 @@ export function Sidebar() {
         <h1 className="text-base font-bold text-slate-800">Academic English Proofreader</h1>
         <p className="mt-0.5 text-xs text-slate-500">学術英語校正アシスタント</p>
       </div>
+
+      <AuthPanel />
+      {cloudSyncState === "syncing" && (
+        <p className="text-[11px] text-slate-500">クラウドと同期中...</p>
+      )}
+      {cloudSyncState === "error" && (
+        <p className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">
+          同期エラー: {cloudSyncError}
+        </p>
+      )}
 
       <div>
         <label className="mb-1 block text-xs font-semibold text-slate-700">ジャーナル</label>
