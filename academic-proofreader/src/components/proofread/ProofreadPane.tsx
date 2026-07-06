@@ -35,7 +35,7 @@ export function ProofreadPane({
   placeholder: string;
   showHistoryAndComments?: boolean;
 }) {
-  const { journalId, runProofread, acceptAll, rejectAll } = useApp();
+  const { journalId, runProofread, acceptAll, rejectAll, mainTextareaRef } = useApp();
   const [subTab, setSubTab] = useState<SubTab>("diff");
   const journal = getJournalProfile(journalId);
   const limit = mode === "caption" ? journal.wordLimits.figureCaption : journal.wordLimits.mainText;
@@ -62,7 +62,12 @@ export function ProofreadPane({
           <WordCountBadge text={text} limit={limit} />
         </div>
         <div className="flex-1 overflow-y-auto">
-          <Editor value={text} onChange={setText} placeholder={placeholder} />
+          <Editor
+            value={text}
+            onChange={setText}
+            placeholder={placeholder}
+            textareaRef={mode === "body" ? mainTextareaRef : undefined}
+          />
         </div>
         <div className="border-t border-slate-200 p-3">
           <button

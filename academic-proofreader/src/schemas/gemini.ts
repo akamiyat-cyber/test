@@ -60,3 +60,37 @@ export const proofreadResponseSchema: Schema = {
     },
   },
 };
+
+/** Matches OutlineResponse in src/types/api.ts. */
+export const outlineResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["sections"],
+  properties: {
+    sections: {
+      type: Type.ARRAY,
+      description: "IMRaD-ordered sections (e.g. Introduction, Methods, Results, Discussion).",
+      items: {
+        type: Type.OBJECT,
+        required: ["heading", "bullets"],
+        properties: {
+          heading: { type: Type.STRING, description: "Section heading." },
+          bullets: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "Key points to cover in this section, as short bullet phrases.",
+          },
+        },
+      },
+    },
+  },
+};
+
+/** Matches ParaphraseResponse in src/types/api.ts. */
+export const paraphraseResponseSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["result", "wordCount"],
+  properties: {
+    result: { type: Type.STRING, description: "The paraphrased or compressed text." },
+    wordCount: { type: Type.INTEGER, description: "Word count of `result`." },
+  },
+};

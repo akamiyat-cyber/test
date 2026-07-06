@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useAuth } from "@/context/AuthContext";
 import {
   addCloudWhitelistTerm,
@@ -47,7 +47,7 @@ import type {
   WhitelistTerm,
 } from "@/lib/types";
 
-export type TabId = "body" | "caption" | "reviewer";
+export type TabId = "draft" | "body" | "caption" | "reviewer";
 
 export type CloudSyncState = "off" | "syncing" | "synced" | "error";
 
@@ -97,6 +97,14 @@ interface AppContextValue {
   setCorrectionStatus: (mode: ProofreadMode, id: string, status: CorrectionStatus) => void;
   acceptAll: (mode: ProofreadMode) => void;
   rejectAll: (mode: ProofreadMode) => void;
+
+  // Drafting-tab helpers: insert text at the cursor / replace the current
+  // selection in the main body editor (used by Outline/Phrasebank/Paraphrase).
+  mainTextareaRef: RefObject<HTMLTextAreaElement | null>;
+  getMainSelectionRange: () => { start: number; end: number } | null;
+  getMainSelectedText: () => string;
+  replaceMainRange: (range: { start: number; end: number }, text: string) => void;
+  insertIntoMainText: (text: string) => void;
 
   // caption
   captionText: string;
@@ -148,11 +156,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [whitelist, setWhitelist] = useState<WhitelistTerm[]>(() => loadWhitelist());
 
-  const [activeTab, setActiveTab] = useState<TabId>("body");
+  const [activeTab, setActiveTab] = useState<TabId>("draft");
 
   const [mainText, setMainText] = useState(() => loadDraft().mainText);
   const [captionText, setCaptionText] = useState(() => loadDraft().captionText);
   const [reviewerCommentsText, setReviewerCommentsText] = useState(() => loadDraft().reviewerCommentsText);
+
+  // Drafting-tab helpers: the body textarea registers itself here so that
+  // outline/phrasebank/paraphrase features can insert text at the cursor (or
+  // replace the current selection) even after focus has moved elsewhere.
+  // selectionStart/End persist on the DOM node across blur, so we read them
+  // live from the ref rather than mirroring them into React state.
+  const mainTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [mainResult, setMainResult] = useState<ProofreadResult | null>(null);
   const [captionResult, setCaptionResult] = useState<ProofreadResult | null>(null);
@@ -422,6 +437,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const getMainSelectionRange = useCallback(() => {
+    const el = mainTextareaRef.current;
+    if (!el) return null;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    return start === end ? null : { start, end };
+  }, []);
+
+  const getMainSelectedText = useCallback(() => {
+    const el = mainTextareaRef.current;
+    if (!el) return "";
+    return el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+  }, []);
+
+  /** Replaces an explicit [start, end) range captured earlier (e.g. by getMainSelectionRange). */
+  const replaceMainRange = useCallback((range: { start: number; end: number }, text: string) => {
+    setMainText((prev) => prev.slice(0, range.start) + text + prev.slice(range.end));
+  }, []);
+
+  /** Inserts at the cursor, or replaces the current selection if any (both are the same splice operation). */
+  const insertIntoMainText = useCallback((text: string) => {
+    const el = mainTextareaRef.current;
+    if (!el) {
+      setMainText((prev) => prev + (prev && !prev.endsWith("\n") ? "\n" : "") + text);
+      return;
+    }
+    const start = Math.min(el.selectionStart ?? el.value.length, el.value.length);
+    const end = Math.min(el.selectionEnd ?? el.value.length, el.value.length);
+    // Avoid gluing onto the previous character with no separator (e.g. a
+    // phrasebank phrase inserted right after a sentence with no trailing space).
+    const before = el.value.slice(0, start);
+    const needsSeparator = before.length > 0 && !/\s$/.test(before) && !/^\s/.test(text);
+    const insertion = needsSeparator ? ` ${text}` : text;
+    setMainText((prev) => prev.slice(0, start) + insertion + prev.slice(end));
+    requestAnimationFrame(() => {
+      const pos = start + insertion.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  }, []);
+
   const generateCoverLetter = useCallback(
     async (title: string, authorNotes: string) => {
       const text = mainResult?.revisedFullText || mainText;
@@ -521,6 +577,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setCorrectionStatus,
       acceptAll,
       rejectAll,
+      mainTextareaRef,
+      getMainSelectionRange,
+      getMainSelectedText,
+      replaceMainRange,
+      insertIntoMainText,
       captionText,
       setCaptionText,
       captionResult,
@@ -560,6 +621,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setCorrectionStatus,
       acceptAll,
       rejectAll,
+      mainTextareaRef,
+      getMainSelectionRange,
+      getMainSelectedText,
+      replaceMainRange,
+      insertIntoMainText,
       captionText,
       captionResult,
       loadingCaption,

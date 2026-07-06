@@ -1,14 +1,19 @@
+import type { Ref } from "react";
+
 export function Editor({
   value,
   onChange,
   placeholder,
+  textareaRef,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  textareaRef?: Ref<HTMLTextAreaElement>;
 }) {
   return (
     <textarea
+      ref={textareaRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
