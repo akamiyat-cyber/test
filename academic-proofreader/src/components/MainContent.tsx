@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import type { TabId } from "@/context/AppContext";
 import { CoverLetterModal } from "@/components/coverletter/CoverLetterModal";
 import { DraftingTab } from "@/components/drafting/DraftingTab";
+import { ExportTab } from "@/components/export/ExportTab";
 import { ProofreadPane } from "@/components/proofread/ProofreadPane";
 import { QualityTab } from "@/components/quality/QualityTab";
 import { ReferencesTab } from "@/components/references/ReferencesTab";
@@ -16,6 +17,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "caption", label: "図表キャプション" },
   { id: "references", label: "文献・引用" },
   { id: "quality", label: "品質・投稿準備" },
+  { id: "export", label: "エクスポート・体裁" },
   { id: "reviewer", label: "査読対応" },
 ];
 
@@ -87,6 +89,7 @@ export function MainContent() {
         )}
         {activeTab === "references" && <ReferencesTab />}
         {activeTab === "quality" && <QualityTab />}
+        {activeTab === "export" && <ExportTab />}
         {activeTab === "reviewer" && <ReviewerResponseTab />}
       </div>
 

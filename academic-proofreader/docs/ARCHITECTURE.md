@@ -114,9 +114,9 @@ DBのCRUD(documents等)はAPI Routeを経由せず、ブラウザからsupabase-
 | POST /api/quality/statements | 3 | 入力フォーム → 各種ステートメント | Geminiテキスト |
 | POST /api/quality/title-abstract | 3 | 現行タイトル/要旨 → 改善案JSON | Gemini構造化 |
 | POST /api/quality/companion-docs | 3 | 原稿 → PLS/Highlights等 | Gemini構造化 |
-| POST /api/export/latex | 4 | ドキュメントID/本文 → LaTeX | なし(変換) |
-| POST /api/export/markdown | 4 | 同上 → Markdown | なし(変換) |
 | GET  /api/usage | 5 | 自分の使用量集計 | なし |
+
+**実装メモ**: LaTeX/Markdownエクスポートと図表・数式の採番・ジャーナルテンプレート整形(フェーズ4)は、当初 `POST /api/export/latex` / `POST /api/export/markdown` として計画していたが、実装時にAIを一切使わない純粋なテキスト変換であり、サーバーを経由する理由がない(往復遅延がなく、オフラインでも動く)と判断し、`src/lib/export/*.ts` のクライアントサイド関数として実装した。API Routeは存在しない。
 
 ## データフロー
 
@@ -150,7 +150,7 @@ Next.js API Route (サーバー)
 | 1 | アウトライン生成・セクションドラフト・Phrasebank・言い換え | 執筆タブから各機能がGemini構造化出力で動く | ✅ 完了 |
 | 2 | BibTeX/RISインポート・引用検索・引用チェック・書式整形 | 文献タブでインポート→検索→挿入→整形が一連で動く | ✅ 完了 |
 | 3 | ガイドライン/統計チェック・ステートメント・最適化・付随文書 | 品質タブの各チェックがJSONで返りUI表示される | ✅ 完了 |
-| 4 | LaTeX/Markdownエクスポート・採番/相互参照・テンプレ整形 | エクスポートボタンからLaTeX/MDがダウンロードできる | 未着手 |
+| 4 | LaTeX/Markdownエクスポート・採番/相互参照・テンプレ整形 | エクスポートボタンからLaTeX/MDがダウンロードできる | ✅ 完了 |
 | 5 | 使用量計測・課金枠組み・外部チェック連携IF | usage_eventsが記録され無料枠超過時に429が返る | 未着手 |
 
 ### フェーズ2の実装メモ
@@ -167,6 +167,12 @@ Next.js API Route (サーバー)
 - チェックリストは「対話的に確認」の要件に対応するため、AIの判定(`satisfied`/`partial`/`missing`)をユーザーがワンクリックで上書きできるUIにしている(校正結果のAccept/Rejectと同じ操作感)。
 - 統計報告チェック・タイトル/要旨最適化はGemini構造化出力、ステートメント生成・付随文書生成はプレーンテキスト生成(該当機能はJSON化する意味が薄いため)。
 - 品質タブは執筆支援・文献タブと同様に本文エディタを共有しており、チェックリスト/統計チェック/付随文書生成は「本文校正」タブで編集中の原稿本文(`mainText`)をそのまま参照する。
+
+### フェーズ4の実装メモ
+
+- エディタはプレーンなtextareaのため、図表・数式は本文中にインライン記法(`[[fig:label]] キャプション` / `[[table:label]] キャプション` / `[[eq:label]]` / `[[ref:label]]`)で記述する方式にした(`src/lib/export/numbering.ts`)。番号は各カテゴリごとに本文中の出現順で採番し、`[[ref:label]]`は対応する宣言がない場合UIとエクスポート結果の両方で明示的に「未解決」として表示する。
+- LaTeXエクスポート(`src/lib/export/latex.ts`)は図表/数式の番号をハードコードせず`\label`/`\ref`に変換し、LaTeX自身の自動採番に委ねる(並び替えへの耐性のため)。Markdownエクスポート(`markdown.ts`)はMarkdownにネイティブな相互参照機構がないため、番号をその場で解決してプレーンテキスト化する。
+- テンプレート整形(`templateFormat.ts`)は既存の`journalProfiles.ts`の`headingTemplate`をそのまま利用し、本文中の`##`見出しを正規化・キーワード一致で対応付けて並べ替える。AIを使わない決定的なロジックのため、フェーズ4は新規API Routeを1つも追加していない。
 
 ## 環境変数
 
